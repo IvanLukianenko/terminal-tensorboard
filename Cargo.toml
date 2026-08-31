@@ -1,0 +1,22 @@
+[package]
+name = "terminal-tensorboard"
+version = "0.2.0"
+edition = "2021"
+description = "An ultra-fast terminal UI for viewing TensorBoard training logs"
+license = "MIT"
+repository = "https://github.com/IvanLukianenko/terminal-tensorboard"
+keywords = ["tensorboard", "tui", "terminal", "machine-learning"]
+categories = ["command-line-utilities", "visualization"]
+
+[[bin]]
+name = "ttb"
+path = "src/main.rs"
+
+[dependencies]
+crossterm = "0.28"
+ratatui = "0.29"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

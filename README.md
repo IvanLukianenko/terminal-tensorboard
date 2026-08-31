@@ -1,47 +1,66 @@
 # terminal-tensorboard
 
-A lightning-fast, zero-dependency terminal UI for viewing TensorBoard training
-logs. Point it at your log directory and watch your losses live — over SSH, in
-tmux, anywhere you have a terminal. No TensorFlow, no protobuf, no browser.
+An ultra-fast terminal UI for viewing TensorBoard training logs, written in
+Rust. Point it at your log directory and watch your losses live — over SSH,
+in tmux, anywhere you have a terminal. No TensorFlow, no protobuf, no
+browser, no Python.
 
 ```
- ttb  ~/runs                        runs 3/3 │ tags 12 │ pts 1.2M │ live ● │ x:step │ y:lin │ smooth 0.60
+ ttb  ~/runs                        runs 3/3 │ tags 5 │ pts 1.1M │ live ● │ x:step │ y:lin │ smooth 0.60
  RUNS                    │ train/loss                                              ● baseline
   ▣ ● baseline           │  2.5┼⢣                                                  ● high_lr
   ▣ ● high_lr            │     │⠘⢆⡀                                                ● low_lr/warmup
   ▣ ● low_lr/warmup      │  1.5┼  ⠑⠢⢄⡀
- TAGS (5)  /              │     │      ⠉⠒⠒⠤⠤⣀⣀⡀
+ TAGS (5)                │     │      ⠉⠒⠒⠤⠤⣀⣀⡀
   ▶ train/loss           │  0.5┼              ⠉⠉⠉⠉⠒⠒⠒⠒⠤⠤⠤⠤⠤⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀
-    train/accuracy       │     └0        5k        10k        15k        20k
+    train/accuracy       │     └0        20k        40k       60k        80k
 ```
 
-## Why it's fast
+## Speed
 
-- **Own tfevents parser.** A hand-rolled TFRecord + protobuf-wire-format
-  reader extracts scalars directly from the bytes — no TensorFlow, no protobuf
-  package, no dependencies at all. Non-scalar payloads (images, histograms)
-  are skipped without being decoded.
-- **Incremental tailing.** Files are read once; every refresh only parses the
-  bytes appended since the last one, so following a live training run costs
-  microseconds per tick. Partially-written trailing records are handled
-  correctly and re-read once complete.
-- **Compact storage.** Points live in `array('d')` / `array('q')` buffers —
-  about 24 bytes per point, millions of points without breaking a sweat.
+Measured on 50 MB of logs — 3 runs × 5 tags × 80 000 steps, **970 000
+scalar points** (`ttb bench LOGDIR`, warm page cache):
+
+| | Rust | Python (v0.1) | speedup |
+| --- | --- | --- | --- |
+| Cold load, 970k points | **84 ms** (11.5M pts/s) | 3 027 ms (0.32M pts/s) | **36×** |
+| Live refresh tick | **90 µs** | 250 µs | 2.8× |
+| Render prep, 80k pts → 400 columns | **156 µs** | 850 µs | 5.4× |
+
+At 156 µs of frame preparation, redraws are bounded by the terminal, not by
+the data — panning and zooming through a million points is instant.
+
+### Why it's fast
+
+- **Zero-copy tfevents parser.** A hand-rolled TFRecord + protobuf-wire-format
+  reader walks the mapped bytes and hands out `&[u8]` tag slices — no
+  protobuf crate, no allocation per point, no intermediate message structs.
+  Field keys are matched as whole bytes (`0x15` = `simple_value`) so the
+  common path is a single jump table, and non-scalar payloads (images,
+  histograms) are skipped without being decoded.
+- **Incremental tailing.** Each file is read once; every refresh parses only
+  the bytes appended since the last one. Partially-written trailing records
+  are handled correctly and re-read once complete.
+- **Compact columnar storage.** Points live in flat `Vec<i64>` / `Vec<f64>`
+  columns — 24 bytes per point, cache-friendly for the bucketing scan.
 - **Pixel-bucket rendering.** Before drawing, each series is reduced to one
-  mean value per braille pixel column (O(points) done by C-level slicing, then
-  everything is O(columns)), so redraws are instant even on huge runs.
-- **Background loading.** Parsing happens on a loader thread; the UI never
-  blocks, even while ingesting gigabytes on first start.
+  mean value per braille pixel column: a binary search for the visible range,
+  then a single linear pass, so the per-frame cost depends on terminal width
+  rather than on run length.
+- **Background loading.** Parsing runs on a loader thread behind a mutex the
+  UI holds only while drawing, so the interface stays responsive even while
+  ingesting gigabytes on first start.
+- **Release profile** with fat LTO and a single codegen unit.
 
 ## Install
 
 ```bash
-pip install .            # from a checkout
-# or just run it in place — there are no dependencies:
-python -m terminal_tensorboard ~/runs
+cargo install --path .        # from a checkout
+# or run it directly:
+cargo run --release -- ~/runs
 ```
 
-Python ≥ 3.8, Linux/macOS (on Windows: `pip install windows-curses` first).
+Requires Rust 1.75+. Linux, macOS and Windows (crossterm handles all three).
 
 ## Usage
 
@@ -51,6 +70,7 @@ ttb LOGDIR --no-follow      # one-shot view
 ttb LOGDIR --refresh 0.5    # poll twice a second
 ttb LOGDIR --smoothing 0.9  # heavier EMA smoothing
 ttb LOGDIR --x reltime      # x axis: step | reltime | wall
+ttb bench LOGDIR            # time a cold load, a refresh tick and a frame
 ```
 
 Every subdirectory containing `tfevents` files becomes a run, exactly like
@@ -80,11 +100,12 @@ scalars are understood, whether written by TensorFlow, PyTorch's
 
 ## Try it without a training run
 
-A demo-log generator (also dependency-free) is included:
+A demo-log generator is built into the binary:
 
 ```bash
-python scripts/generate_demo_logs.py demo_logs          # 3 runs, 5 tags
-python scripts/generate_demo_logs.py demo_logs --live   # keeps appending
+ttb gen-demo demo_logs                 # 3 runs, 5 tags, 5k steps
+ttb gen-demo demo_logs --steps 80000   # ~1M points
+ttb gen-demo demo_logs --live          # keeps appending, for live-follow
 ttb demo_logs
 ```
 
@@ -94,16 +115,35 @@ ttb demo_logs
   of the raw points in that column), which matches TensorBoard's look while
   staying O(width) per frame.
 - Colors adapt to the terminal: a 256-color palette when available, the basic
-  8 otherwise; the UI itself uses only default-theme-safe attributes.
+  8 otherwise.
 - Corrupt or truncated event files never crash the viewer — parsing stops at
   the first bad record and keeps everything before it.
+- Record CRCs are not verified on read. Framing plus protobuf structure is
+  validation enough here, and skipping the checksum is a large part of the
+  read speed; CRCs *are* written correctly by `gen-demo`.
 
 ## Development
 
 ```bash
-python -m unittest discover -s tests
+cargo test        # 12 unit tests: parser, store, plotting
+cargo clippy      # clean
 ```
 
-Layout: `tfevents.py` (parser/writer) · `store.py` (run discovery, incremental
-ingest) · `plot.py` (braille canvas, bucketing, smoothing) · `app.py` (curses
-UI) · `cli.py`.
+Layout: `src/tfevents.rs` (parser/writer) · `src/store.rs` (run discovery,
+incremental ingest) · `src/plot.rs` (braille canvas, bucketing, smoothing) ·
+`src/app.rs` (state, key handling) · `src/ui.rs` (rendering) ·
+`src/gen.rs` (demo logs) · `src/main.rs` (CLI, loader thread, event loop).
+
+### Python version
+
+The original dependency-free Python implementation lives in
+[`python/`](python/) and is kept as a reference and a fallback for
+environments without a Rust toolchain:
+
+```bash
+python -m terminal_tensorboard ~/runs     # from python/
+python -m unittest discover -s tests      # 11 tests
+```
+
+It is feature-equivalent but roughly 36× slower to load and no longer the
+recommended way to run this tool.
