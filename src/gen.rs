@@ -55,10 +55,8 @@ fn append_steps(
     let path = dir.join("events.out.tfevents.demo");
     let mut f = OpenOptions::new().create(true).append(true).open(path)?;
     let mut rng = Rng(run.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(start as u64 + 1));
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs_f64();
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
     let t0 = now - (total_hint - start) as f64 * 0.05;
     let mut out = Vec::with_capacity(count as usize * 160);
     for i in start..start + count {
@@ -75,7 +73,13 @@ fn append_steps(
             ("train/lr", lr_now),
             ("train/grad_norm", grad),
         ] {
-            out.extend(frame_record(&encode_scalar_event(tag, i, wall, value as f32, run.tensor_format)));
+            out.extend(frame_record(&encode_scalar_event(
+                tag,
+                i,
+                wall,
+                value as f32,
+                run.tensor_format,
+            )));
         }
         if i % 25 == 0 {
             let v = (loss + 0.15 + rng.gauss(0.0, 0.03)) as f32;

@@ -10,7 +10,9 @@ use ratatui::Frame;
 
 use crate::app::{App, Focus, XMode};
 use crate::colors::{Dash, Palette};
-use crate::plot::{bucketize, ema_smooth, fmt_count, fmt_duration, fmt_num, nice_ticks, BrailleCanvas};
+use crate::plot::{
+    bucketize, ema_smooth, fmt_count, fmt_duration, fmt_num, nice_ticks, BrailleCanvas,
+};
 use crate::store::{Series, Store};
 
 const HELP: &[(&str, &str)] = &[
@@ -66,11 +68,8 @@ fn run_style(store: &Store, ui: &UiState, name: &str) -> (Color, Dash) {
 
 /// Filtered tag list for the current filter text.
 pub fn visible_tags(store: &Store, app: &App) -> Vec<String> {
-    let enabled: std::collections::HashSet<String> = store
-        .run_names()
-        .into_iter()
-        .filter(|n| !app.disabled.contains(n))
-        .collect();
+    let enabled: std::collections::HashSet<String> =
+        store.run_names().into_iter().filter(|n| !app.disabled.contains(n)).collect();
     let mut tags = store.tags(&enabled);
     if !app.filter_text.is_empty() {
         let needle = app.filter_text.to_lowercase();
@@ -123,16 +122,17 @@ fn draw_header(
 ) {
     let enabled = run_names.iter().filter(|n| !app.disabled.contains(*n)).count();
     let state = if app.follow {
-        if ui.busy { "live ●" } else { "live ○" }
+        if ui.busy {
+            "live ●"
+        } else {
+            "live ○"
+        }
     } else {
         "paused"
     };
     let left = format!(" ttb  {} ", store.logdir.display());
-    let thinned = if store.max_stride > 1 {
-        format!(" ÷{}", store.max_stride)
-    } else {
-        String::new()
-    };
+    let thinned =
+        if store.max_stride > 1 { format!(" ÷{}", store.max_stride) } else { String::new() };
     let right = format!(
         " runs {}/{} │ tags {} │ pts {}{} │ {} │ x:{} │ y:{} │ smooth {:.2} ",
         enabled,
@@ -165,7 +165,13 @@ fn draw_footer(buf: &mut Buffer, area: Rect, app: &App) {
          +/-/[/]:zoom·pan  g:grid  L:log  x:axis  f:follow  ?:help  q:quit"
             .to_string()
     };
-    put(buf, area.x, area.y + area.height - 1, &format!("{:w$}", text, w = area.width as usize), dim());
+    put(
+        buf,
+        area.x,
+        area.y + area.height - 1,
+        &format!("{:w$}", text, w = area.width as usize),
+        dim(),
+    );
 }
 
 // -- sidebar ---------------------------------------------------------------
@@ -224,7 +230,13 @@ fn draw_sidebar(
         let mark = if on { "▣" } else { "☐" };
         put(buf, area.x, y, &format!(" {} ", mark), row_style);
         let (color, dash) = run_style(store, ui, name);
-        put(buf, area.x + 3, y, dash.marker(), Style::default().fg(color).add_modifier(Modifier::BOLD));
+        put(
+            buf,
+            area.x + 3,
+            y,
+            dash.marker(),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        );
         let label_style = if on { row_style } else { row_style.add_modifier(Modifier::DIM) };
         let label = format!(" {}", name);
         let w = area.width.saturating_sub(6) as usize;
@@ -283,7 +295,8 @@ fn draw_charts(
         return;
     }
     if tags.is_empty() {
-        let msg = if app.filter_text.is_empty() { "no scalars found" } else { "no tags match filter" };
+        let msg =
+            if app.filter_text.is_empty() { "no scalars found" } else { "no tags match filter" };
         center_msg(buf, area, msg);
         return;
     }
@@ -295,7 +308,12 @@ fn draw_charts(
         let cell_w = area.width / ncols;
         for (i, tag) in shown.iter().enumerate() {
             let (r, c) = ((i as u16) / ncols, (i as u16) % ncols);
-            let cell = Rect { x: area.x + c * cell_w, y: area.y + r * cell_h, width: cell_w, height: cell_h };
+            let cell = Rect {
+                x: area.x + c * cell_w,
+                y: area.y + r * cell_h,
+                width: cell_w,
+                height: cell_h,
+            };
             draw_chart(buf, cell, app, store, ui, run_names, tag, false, i == 0);
         }
     } else {
@@ -364,7 +382,11 @@ fn draw_chart(
         }
     }
     if series.is_empty() {
-        center_msg(buf, Rect { y: area.y + 1, height: plot_h as u16, ..area }, "no data in enabled runs");
+        center_msg(
+            buf,
+            Rect { y: area.y + 1, height: plot_h as u16, ..area },
+            "no data in enabled runs",
+        );
         return;
     }
 
@@ -410,7 +432,11 @@ fn draw_chart(
         drawn.push(DrawnSeries { color, dash, name, pts, series: s, off });
     }
     if drawn.is_empty() || vmin > vmax {
-        center_msg(buf, Rect { y: area.y + 1, height: plot_h as u16, ..area }, "no drawable points");
+        center_msg(
+            buf,
+            Rect { y: area.y + 1, height: plot_h as u16, ..area },
+            "no drawable points",
+        );
         return;
     }
     if vmax - vmin < 1e-12 {
@@ -460,8 +486,18 @@ fn draw_chart(
         let row = (to_py(tick) / 4).clamp(0, plot_h as i64 - 1) as u16;
         let shown = if app.log_y { 10f64.powf(tick) } else { tick };
         let label = fmt_num(shown);
-        let label = if label.len() > gutter as usize { label[..gutter as usize].to_string() } else { label };
-        put(buf, area.x + gutter - label.chars().count().min(gutter as usize) as u16, area.y + 1 + row, &label, dim());
+        let label = if label.len() > gutter as usize {
+            label[..gutter as usize].to_string()
+        } else {
+            label
+        };
+        put(
+            buf,
+            area.x + gutter - label.chars().count().min(gutter as usize) as u16,
+            area.y + 1 + row,
+            &label,
+            dim(),
+        );
         put(buf, axis_x, area.y + 1 + row, "┼", dim());
     }
 
@@ -472,7 +508,13 @@ fn draw_chart(
                 let color = color_of[(ci - 1) as usize];
                 let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
                 let mut tmp = [0u8; 4];
-                put(buf, axis_x + 1 + col as u16, area.y + 1 + row as u16, ch.encode_utf8(&mut tmp), style);
+                put(
+                    buf,
+                    axis_x + 1 + col as u16,
+                    area.y + 1 + row as u16,
+                    ch.encode_utf8(&mut tmp),
+                    style,
+                );
             }
         }
     }
@@ -543,7 +585,12 @@ fn draw_legend(
             };
             if idx > 0 {
                 let idx = idx - 1;
-                text = format!("{}  {} @ {}", d.name, fmt_num(s.vals[idx]), fmt_count(s.steps[idx].max(0) as u64));
+                text = format!(
+                    "{}  {} @ {}",
+                    d.name,
+                    fmt_num(s.vals[idx]),
+                    fmt_count(s.steps[idx].max(0) as u64)
+                );
             }
         }
         let line_len = text.chars().count() as u16 + 2;
@@ -564,7 +611,13 @@ fn draw_help(buf: &mut Buffer, area: Rect) {
     }
     put(buf, left + 2, top + 1, "terminal-tensorboard — keys", rev().add_modifier(Modifier::BOLD));
     for (i, (keys, desc)) in HELP.iter().take(box_h.saturating_sub(4) as usize).enumerate() {
-        put(buf, left + 2, top + 3 + i as u16, &format!("{:18}", keys), rev().add_modifier(Modifier::BOLD));
+        put(
+            buf,
+            left + 2,
+            top + 3 + i as u16,
+            &format!("{:18}", keys),
+            rev().add_modifier(Modifier::BOLD),
+        );
         put(buf, left + 20, top + 3 + i as u16, desc, rev());
     }
 }

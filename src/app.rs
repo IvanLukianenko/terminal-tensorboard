@@ -175,7 +175,8 @@ impl App {
             self.handle_filter_key(key);
             return;
         }
-        let ctrl_c = key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
+        let ctrl_c =
+            key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
         if ctrl_c {
             self.quit = true;
             return;
@@ -216,8 +217,12 @@ impl App {
                 self.view = (0.0, 1.0);
                 self.cursor = None;
             }
-            KeyCode::Char('s') => self.smoothing = ((self.smoothing - 0.05) * 100.0).round() / 100.0,
-            KeyCode::Char('S') => self.smoothing = ((self.smoothing + 0.05) * 100.0).round() / 100.0,
+            KeyCode::Char('s') => {
+                self.smoothing = ((self.smoothing - 0.05) * 100.0).round() / 100.0
+            }
+            KeyCode::Char('S') => {
+                self.smoothing = ((self.smoothing + 0.05) * 100.0).round() / 100.0
+            }
             KeyCode::Char('a') => {
                 // Scoped to the runs the filter is showing, so "/lr → a"
                 // enables exactly that group.

@@ -329,7 +329,13 @@ fn put_field(out: &mut Vec<u8>, num: u64, wt: u64) {
 }
 
 /// Encode one Event proto holding a single scalar summary.
-pub fn encode_scalar_event(tag: &str, step: i64, wall_time: f64, value: f32, tensor: bool) -> Vec<u8> {
+pub fn encode_scalar_event(
+    tag: &str,
+    step: i64,
+    wall_time: f64,
+    value: f32,
+    tensor: bool,
+) -> Vec<u8> {
     let mut val = Vec::with_capacity(tag.len() + 24);
     put_field(&mut val, 1, 2);
     put_varint(&mut val, tag.len() as u64);

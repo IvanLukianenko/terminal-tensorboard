@@ -192,7 +192,13 @@ pub fn nice_ticks(lo: f64, hi: f64, count: usize) -> Vec<f64> {
 /// Compact human formatting for axis labels and readouts.
 pub fn fmt_num(v: f64) -> String {
     if !v.is_finite() {
-        return if v.is_nan() { "nan".into() } else if v > 0.0 { "inf".into() } else { "-inf".into() };
+        return if v.is_nan() {
+            "nan".into()
+        } else if v > 0.0 {
+            "inf".into()
+        } else {
+            "-inf".into()
+        };
     }
     let a = v.abs();
     if a != 0.0 && !(1e-3..1e5).contains(&a) {
@@ -203,7 +209,11 @@ pub fn fmt_num(v: f64) -> String {
     }
     let s = format!("{:.4}", v);
     let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-    if trimmed.is_empty() || trimmed == "-" { "0".into() } else { trimmed.to_string() }
+    if trimmed.is_empty() || trimmed == "-" {
+        "0".into()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 pub fn fmt_duration(seconds: f64) -> String {

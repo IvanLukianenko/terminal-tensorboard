@@ -77,11 +77,7 @@ impl Dash {
     }
 }
 
-const DASHES: [Dash; 3] = [
-    Dash::SOLID,
-    Dash { on: 6, period: 9 },
-    Dash { on: 2, period: 6 },
-];
+const DASHES: [Dash; 3] = [Dash::SOLID, Dash { on: 6, period: 9 }, Dash { on: 2, period: 6 }];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Depth {

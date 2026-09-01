@@ -77,16 +77,12 @@ fn parse_args() -> Result<Args, String> {
             }
             "--no-follow" => follow = false,
             "--refresh" => {
-                refresh = args
-                    .next()
-                    .and_then(|v| v.parse().ok())
-                    .ok_or("--refresh needs a number")?;
+                refresh =
+                    args.next().and_then(|v| v.parse().ok()).ok_or("--refresh needs a number")?;
             }
             "--smoothing" => {
-                smoothing = args
-                    .next()
-                    .and_then(|v| v.parse().ok())
-                    .ok_or("--smoothing needs a number")?;
+                smoothing =
+                    args.next().and_then(|v| v.parse().ok()).ok_or("--smoothing needs a number")?;
             }
             "--max-runs" => {
                 max_runs = args
@@ -175,17 +171,10 @@ fn main() {
             store.total_points as f64 / cold.as_secs_f64() / 1e6,
             tick,
         );
-        println!(
-            "stored: {} points (cap {}/series, thinning ÷{})",
-            stored, cap, store.max_stride
-        );
+        println!("stored: {} points (cap {}/series, thinning ÷{})", stored, cap, store.max_stride);
         // render prep (bucketize + smooth) for the largest series, to 400 pixel columns
-        if let Some((len, dur)) = store
-            .runs
-            .values()
-            .flat_map(|r| r.series.values())
-            .max_by_key(|s| s.len())
-            .map(|s| {
+        if let Some((len, dur)) =
+            store.runs.values().flat_map(|r| r.series.values()).max_by_key(|s| s.len()).map(|s| {
                 let t0 = std::time::Instant::now();
                 let reps = 100;
                 for _ in 0..reps {
@@ -285,15 +274,8 @@ fn run_tui(args: Args) -> std::io::Result<()> {
     crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
-    let result = event_loop(
-        &mut terminal,
-        &store,
-        &follow_flag,
-        &loaded_flag,
-        &busy_flag,
-        &wake_tx,
-        args,
-    );
+    let result =
+        event_loop(&mut terminal, &store, &follow_flag, &loaded_flag, &busy_flag, &wake_tx, args);
 
     stop_flag.store(true, Ordering::Relaxed);
     let _ = wake_tx.send(());
@@ -341,7 +323,8 @@ fn event_loop(
             }
         }
         if app.loaded && dirty {
-            let ui_state = ui::UiState { palette: palette.clone(), busy: busy_flag.load(Ordering::Relaxed) };
+            let ui_state =
+                ui::UiState { palette: palette.clone(), busy: busy_flag.load(Ordering::Relaxed) };
             let s = store.lock().unwrap();
             terminal.draw(|f| ui::draw(f, &mut app, &s, &ui_state))?;
             dirty = false;

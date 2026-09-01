@@ -256,9 +256,9 @@ pub fn load_file(pending: &Pending) -> Option<Batch> {
             let tag_str = std::str::from_utf8(tag).unwrap_or("<invalid-utf8>");
             let s = match series.get_mut(tag_str) {
                 Some(s) => s,
-                None => series
-                    .entry(tag_str.to_string())
-                    .or_insert_with(|| pending.seed.get(tag_str).map_or_else(Series::default, |d| d.continuation())),
+                None => series.entry(tag_str.to_string()).or_insert_with(|| {
+                    pending.seed.get(tag_str).map_or_else(Series::default, |d| d.continuation())
+                }),
             };
             s.offer(step, wall, val, cap);
             if wall != 0.0 && first_wall.is_none_or(|w| wall < w) {
@@ -457,7 +457,6 @@ impl Store {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,10 +565,7 @@ mod tests {
                 stride
             );
         }
-        assert!(
-            s.steps[s.len() - 1] as u64 >= 64_000 - stride,
-            "the end of the range was lost"
-        );
+        assert!(s.steps[s.len() - 1] as u64 >= 64_000 - stride, "the end of the range was lost");
     }
 
     #[test]
