@@ -1,6 +1,6 @@
 [package]
 name = "terminal-tensorboard"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "An ultra-fast terminal UI for viewing TensorBoard training logs"
 license = "MIT"

@@ -68,7 +68,7 @@ Nothing to install — one file, no runtime:
 
 ```bash
 # Linux x86-64 (static, works on any distribution)
-curl -fsSL https://github.com/IvanLukianenko/terminal-tensorboard/releases/latest/download/ttb-0.2.0-x86_64-unknown-linux-musl.tar.gz \
+curl -fsSL https://github.com/IvanLukianenko/terminal-tensorboard/releases/latest/download/ttb-0.3.0-x86_64-unknown-linux-musl.tar.gz \
   | tar xz --strip-components=1 -C /usr/local/bin --wildcards '*/ttb'
 ttb ~/runs
 ```
