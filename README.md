@@ -62,40 +62,83 @@ the data — panning and zooming through a million points is instant.
 
 ### Download a binary
 
-Prebuilt binaries are attached to every [release](https://github.com/IvanLukianenko/terminal-tensorboard/releases)
-for Linux (x86-64 static, arm64), macOS (Intel, Apple silicon) and Windows.
-Nothing to install — one file, no runtime:
+Every [release](https://github.com/IvanLukianenko/terminal-tensorboard/releases)
+carries a prebuilt binary. One file, no runtime, nothing else to install.
+
+| Platform | Archive |
+| --- | --- |
+| Linux x86-64 | `ttb-0.3.0-x86_64-unknown-linux-musl.tar.gz` — static, runs on any distribution |
+| Linux arm64 | `ttb-0.3.0-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS Apple silicon | `ttb-0.3.0-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `ttb-0.3.0-x86_64-apple-darwin.tar.gz` |
+| Windows x86-64 | `ttb-0.3.0-x86_64-pc-windows-msvc.zip` |
+
+Linux and macOS — take the row that matches your machine and put the binary on
+your `PATH`:
 
 ```bash
-# Linux x86-64 (static, works on any distribution)
-curl -fsSL https://github.com/IvanLukianenko/terminal-tensorboard/releases/latest/download/ttb-0.3.0-x86_64-unknown-linux-musl.tar.gz \
-  | tar xz --strip-components=1 -C /usr/local/bin --wildcards '*/ttb'
+REL=https://github.com/IvanLukianenko/terminal-tensorboard/releases/download/v0.3.0
+PKG=ttb-0.3.0-x86_64-unknown-linux-musl          # or another row from the table
+
+curl -fsSL -O "$REL/$PKG.tar.gz"
+tar xzf "$PKG.tar.gz"
+sudo install -m755 "$PKG/ttb" /usr/local/bin/    # or: mv "$PKG/ttb" ~/.local/bin/
 ttb ~/runs
 ```
 
-`SHA256SUMS` is published alongside them. Builds for an untagged commit can
-also be run on demand from the Actions tab (Release → Run workflow) and
-downloaded from that run's artifacts.
+Windows, in PowerShell:
+
+```powershell
+$pkg = "ttb-0.3.0-x86_64-pc-windows-msvc"
+Invoke-WebRequest "https://github.com/IvanLukianenko/terminal-tensorboard/releases/download/v0.3.0/$pkg.zip" -OutFile "$pkg.zip"
+Expand-Archive "$pkg.zip" -DestinationPath .
+.\$pkg\ttb.exe C:\runs
+```
+
+To check what you downloaded, `SHA256SUMS` is published beside the archives:
+
+```bash
+curl -fsSL -O "$REL/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing     # macOS: shasum -a 256 -c
+```
+
+The binaries are unsigned. macOS quarantines anything fetched through a
+browser, so if you downloaded that way rather than with `curl`, clear the flag
+once: `xattr -d com.apple.quarantine ttb`.
+
+### Install with cargo
+
+```bash
+cargo install --git https://github.com/IvanLukianenko/terminal-tensorboard   # no checkout
+cargo install --path .                                                       # from a checkout
+```
 
 ### Build from source
 
 ```bash
-cargo install --path .        # from a checkout
-# or run it directly:
+git clone https://github.com/IvanLukianenko/terminal-tensorboard
+cd terminal-tensorboard
 cargo run --release -- ~/runs
 ```
 
-Requires Rust 1.75+. Linux, macOS and Windows (crossterm handles all three).
+Rust 1.75+ and nothing else: the only dependencies are crossterm and ratatui,
+both pure Rust, so there is no C toolchain, no protobuf compiler and no Python
+in the build.
 
 ### Releasing
 
-Tagging is all it takes — `.github/workflows/release.yml` builds every target,
-attaches the archives and their checksums to a GitHub release, and writes the
-notes from the commit log:
+`.github/workflows/release.yml` builds every target in the table, attaches the
+archives and their checksums to a GitHub release, and writes the notes from the
+commit log. Either of these starts it:
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.3.0 && git push origin v0.3.0   # the tag publishes itself
+git push origin release/v0.3.0             # the workflow creates the tag
 ```
+
+The branch form is there so a release can be cut without holding tag-push
+rights locally. Running the workflow by hand from the Actions tab builds the
+same archives without releasing anything — they land as artifacts on that run.
 
 ## Usage
 
