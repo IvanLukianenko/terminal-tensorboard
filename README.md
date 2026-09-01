@@ -7,16 +7,11 @@ Rust. Point it at your log directory and watch your losses live — over SSH,
 in tmux, anywhere you have a terminal. No TensorFlow, no protobuf, no
 browser, no Python.
 
-```
- ttb  ~/runs                        runs 3/3 │ tags 5 │ pts 1.1M │ live ● │ x:step │ y:lin │ smooth 0.60
- RUNS                    │ train/loss                                              ● baseline
-  ▣ ● baseline           │  2.5┼⢣                                                  ● high_lr
-  ▣ ● high_lr            │     │⠘⢆⡀                                                ● low_lr/warmup
-  ▣ ● low_lr/warmup      │  1.5┼  ⠑⠢⢄⡀
- TAGS (5)                │     │      ⠉⠒⠒⠤⠤⣀⣀⡀
-  ▶ train/loss           │  0.5┼              ⠉⠉⠉⠉⠒⠒⠒⠒⠤⠤⠤⠤⠤⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀
-    train/accuracy       │     └0        20k        40k       60k        80k
-```
+![ttb showing three runs of the demo logs](docs/media/default.png)
+
+*Three runs overlaid on one tag, the sidebar listing runs and tags, the legend
+naming each curve. Every screenshot here is real output, captured from a
+running `ttb`.*
 
 ## Speed
 
@@ -179,6 +174,13 @@ scalars are understood, whether written by TensorFlow, PyTorch's
 | `b` | toggle the sidebar |
 | `?` | help, `q` quit |
 
+## The grid view
+
+`g` fills the pane with as many charts as fit at a legible size — up to three
+columns and three rows, arranged to leave no empty cells:
+
+![the grid view showing five tags across three columns](docs/media/grid3.png)
+
 ## Try it without a training run
 
 A demo-log generator is built into the binary:
@@ -209,6 +211,11 @@ Picking runs from the sidebar (`Shift-Tab` focuses the RUNS list):
 
 The default only ever applies to a run the first time it is seen, so a run
 appearing mid-training never overrides a choice you have already made.
+
+![300 runs, twelve of them shown](docs/media/many.png)
+
+*300 runs with `--max-runs 12`. Runs 9 to 12 carry a `◆` marker: their hues
+repeat the first eight, so their curves are drawn dashed to keep them apart.*
 
 Loading is progressive: runs and tags are listed as soon as the directory is
 walked, and the points stream in behind them, so a large directory is usable
