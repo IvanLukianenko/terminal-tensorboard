@@ -1,5 +1,7 @@
 # terminal-tensorboard
 
+[![CI](https://github.com/IvanLukianenko/terminal-tensorboard/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanLukianenko/terminal-tensorboard/actions/workflows/ci.yml)
+
 An ultra-fast terminal UI for viewing TensorBoard training logs, written in
 Rust. Point it at your log directory and watch your losses live — over SSH,
 in tmux, anywhere you have a terminal. No TensorFlow, no protobuf, no
@@ -58,6 +60,25 @@ the data — panning and zooming through a million points is instant.
 
 ## Install
 
+### Download a binary
+
+Prebuilt binaries are attached to every [release](https://github.com/IvanLukianenko/terminal-tensorboard/releases)
+for Linux (x86-64 static, arm64), macOS (Intel, Apple silicon) and Windows.
+Nothing to install — one file, no runtime:
+
+```bash
+# Linux x86-64 (static, works on any distribution)
+curl -fsSL https://github.com/IvanLukianenko/terminal-tensorboard/releases/latest/download/ttb-0.2.0-x86_64-unknown-linux-musl.tar.gz \
+  | tar xz --strip-components=1 -C /usr/local/bin --wildcards '*/ttb'
+ttb ~/runs
+```
+
+`SHA256SUMS` is published alongside them. Builds for an untagged commit can
+also be run on demand from the Actions tab (Release → Run workflow) and
+downloaded from that run's artifacts.
+
+### Build from source
+
 ```bash
 cargo install --path .        # from a checkout
 # or run it directly:
@@ -65,6 +86,16 @@ cargo run --release -- ~/runs
 ```
 
 Requires Rust 1.75+. Linux, macOS and Windows (crossterm handles all three).
+
+### Releasing
+
+Tagging is all it takes — `.github/workflows/release.yml` builds every target,
+attaches the archives and their checksums to a GitHub release, and writes the
+notes from the commit log:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
 
 ## Usage
 

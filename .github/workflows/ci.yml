@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # Formatting and lints only need to run once; the other platforms are
+      # here to prove the code builds and the tests pass on them.
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt --check
+
+      - name: Clippy
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Smoke-test the binary
+        shell: bash
+        run: |
+          cargo build --release
+          ./target/release/ttb --version
+          ./target/release/ttb gen-demo "${RUNNER_TEMP}/demo" --steps 500
+          # bench exercises discovery, parsing and the render path without a TTY
+          ./target/release/ttb bench "${RUNNER_TEMP}/demo"
