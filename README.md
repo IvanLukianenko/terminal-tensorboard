@@ -160,7 +160,8 @@ scalars are understood, whether written by TensorFlow, PyTorch's
 | `Tab` / `Shift-Tab` | cycle focus: runs → tags → chart |
 | `j` `k` / arrows | move in lists; prev/next tag when chart is focused |
 | `Space` | show/hide the selected run |
-| `Enter` | on a run: show only it (solo) · on a tag: open it |
+| `Enter` | on a run: show only it (solo) · on a tag group: open/close · on a tag: chart it |
+| `→` `←` (or `l` `h` in the tag list) | open / close a tag group |
 | `a` | show/hide every run the filter currently lists |
 | `/` | filter the focused list — runs or tags (Enter apply, Esc cancel) |
 | `h` `l` / arrows | move the data cursor over the chart (`c`/Esc clears) |
@@ -173,6 +174,29 @@ scalars are understood, whether written by TensorFlow, PyTorch's
 | `f` | toggle live follow, `r` reload now |
 | `b` | toggle the sidebar |
 | `?` | help, `q` quit |
+
+## Tag groups
+
+Tags are paths — `data_profiler/swh_content-dedup-opc-filtered_bd912224/mean_loss`
+— and a real run logs dozens of them under the same prefix. Listed flat, every
+row repeats that prefix and the part that tells them apart runs off the edge of
+the sidebar. So the list is a tree, split on `/`:
+
+![the tag list as a tree](docs/media/tags.png)
+
+Sixty tags become thirteen rows, eighteen with one group open. Groups count what they hold, `→`/`←` open and
+close them, and `←` on a tag steps back out to its group. The top level starts
+open and deeper levels closed; a filter opens everything, so a match is never
+hidden inside a closed group. Selecting a group charts the first tag in it, so
+moving through the tree always shows something.
+
+Two more things keep names readable. A chain of groups with one child each is
+folded into a single row (`val/loss`, not `val` then `loss`) — depth costs
+indent, and indent is width the names need. And when a name still does not fit,
+it is cut in the **middle**: `swh_content-dedup…-code_bd912224` keeps the hash
+at the end, which is usually the part that distinguishes one group from
+another. The sidebar itself grows to fit the longest name it has to show, up to
+two fifths of the pane, and stays narrow when the names are short.
 
 ## The grid view
 

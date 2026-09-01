@@ -1,6 +1,6 @@
 //! Application state and key handling.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -60,6 +60,9 @@ pub struct App {
     pub filter_editing: bool,
     /// Which list `/` is filtering — Runs or Tags.
     pub filter_target: Focus,
+    /// Which tag groups the user has opened or closed; anything absent takes
+    /// the default from `tags::is_expanded`.
+    pub tag_open: HashMap<String, bool>,
     filter_backup: String,
     pub grid: bool,
     pub log_y: bool,
@@ -96,6 +99,7 @@ impl App {
             run_filter_text: String::new(),
             filter_editing: false,
             filter_target: Focus::Tags,
+            tag_open: HashMap::new(),
             filter_backup: String::new(),
             grid: false,
             log_y: false,
@@ -151,6 +155,20 @@ impl App {
         }
         let needle = self.run_filter_text.to_lowercase();
         all.iter().filter(|n| n.to_lowercase().contains(&needle)).cloned().collect()
+    }
+
+    /// The tag list as tree rows. A filter forces every group open so a
+    /// match is never hidden inside a closed one.
+    pub fn tag_rows(&self, tags: &[String]) -> Vec<crate::tags::Row> {
+        crate::tags::rows(tags, &self.tag_open, !self.filter_text.is_empty())
+    }
+
+    /// Index into `tags` of the tag the chart should draw: the selected leaf,
+    /// or the first tag inside the selected group.
+    pub fn selected_tag(&self, tags: &[String]) -> Option<usize> {
+        let rows = self.tag_rows(tags);
+        let row = rows.get(self.tag_sel.min(rows.len().saturating_sub(1)))?;
+        crate::tags::first_leaf(tags, row)
     }
 
     pub fn flash(&mut self, msg: &str) {
@@ -336,16 +354,41 @@ impl App {
     }
 
     fn handle_tags_key(&mut self, key: KeyEvent, tags: &[String]) {
+        let rows = self.tag_rows(tags);
+        if rows.is_empty() {
+            return;
+        }
+        let sel = self.tag_sel.min(rows.len() - 1);
         match key.code {
-            KeyCode::Char('j') | KeyCode::Down if !tags.is_empty() => {
-                self.tag_sel = (self.tag_sel + 1).min(tags.len() - 1)
-            }
-            KeyCode::Char('k') | KeyCode::Up => self.tag_sel = self.tag_sel.saturating_sub(1),
+            KeyCode::Char('j') | KeyCode::Down => self.tag_sel = (sel + 1).min(rows.len() - 1),
+            KeyCode::Char('k') | KeyCode::Up => self.tag_sel = sel.saturating_sub(1),
             KeyCode::Home => self.tag_sel = 0,
-            KeyCode::End if !tags.is_empty() => self.tag_sel = tags.len() - 1,
+            KeyCode::End => self.tag_sel = rows.len() - 1,
+            // right opens, left closes — and on a leaf, left steps out to the
+            // group holding it, which is how one gets back up a deep tree
+            KeyCode::Right | KeyCode::Char('l') => {
+                let row = &rows[sel];
+                if !row.leaf {
+                    self.tag_open.insert(row.path.clone(), true);
+                }
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                let row = &rows[sel];
+                if !row.leaf && row.expanded {
+                    self.tag_open.insert(row.path.clone(), false);
+                } else if let Some(parent) = rows[..sel].iter().rposition(|r| r.depth < row.depth) {
+                    self.tag_sel = parent;
+                }
+            }
             KeyCode::Enter => {
-                self.grid = false;
-                self.focus = Focus::Chart;
+                let row = &rows[sel];
+                if row.leaf {
+                    self.grid = false;
+                    self.focus = Focus::Chart;
+                } else {
+                    let open = !row.expanded;
+                    self.tag_open.insert(row.path.clone(), open);
+                }
             }
             _ => {}
         }

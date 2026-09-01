@@ -5,6 +5,7 @@ mod colors;
 mod gen;
 mod plot;
 mod store;
+mod tags;
 mod tfevents;
 mod ui;
 

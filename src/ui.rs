@@ -19,7 +19,8 @@ const HELP: &[(&str, &str)] = &[
     ("Tab / Shift-Tab", "cycle focus: runs -> tags -> chart"),
     ("j k / arrows", "move in lists; prev/next tag in chart"),
     ("Space", "show/hide the selected run"),
-    ("Enter", "on a run: show only it · on a tag: open it"),
+    ("Enter", "run: show only it · group: open/close · tag: chart"),
+    ("→ ←  or  l h", "in the tag tree: open / close a group"),
     ("a", "show/hide every run the filter lists"),
     ("/", "filter the focused list — runs or tags"),
     ("h l / arrows", "move data cursor (chart focus), c/Esc clear"),
@@ -114,16 +115,18 @@ pub fn draw(f: &mut Frame, app: &mut App, store: &Store, ui: &UiState) {
     let run_names = app.visible_runs(&all_runs);
     let tags = visible_tags(store, app);
     app.run_sel = app.run_sel.min(run_names.len().saturating_sub(1));
-    app.tag_sel = app.tag_sel.min(tags.len().saturating_sub(1));
 
     draw_header(buf, area, app, store, ui, &all_runs, &tags);
     draw_footer(buf, area, app);
 
     let body = Rect { x: area.x, y: area.y + 1, width: area.width, height: area.height - 2 };
     let chart_area = if app.sidebar {
-        let side_w = (area.width / 3).clamp(24, 34);
+        // built once and passed down: on a directory with thousands of tags
+        // this walk is milliseconds, and doing it twice a frame would show
+        let tag_rows = app.tag_rows(&tags);
+        let side_w = sidebar_width(area.width, &run_names, &tag_rows);
         let side = Rect { width: side_w, ..body };
-        draw_sidebar(buf, side, app, store, ui, &run_names, &tags);
+        draw_sidebar(buf, side, app, store, ui, &run_names, &tags, &tag_rows);
         Rect { x: body.x + side_w, width: body.width - side_w, ..body }
     } else {
         body
@@ -200,6 +203,26 @@ fn draw_footer(buf: &mut Buffer, area: Rect, app: &App) {
 
 // -- sidebar ---------------------------------------------------------------
 
+/// Width the sidebar takes: enough for the longest name it has to show,
+/// within bounds. Short tag sets keep it narrow; the deep hierarchies that
+/// motivated the tree get room for their names instead of eliding them, and
+/// the chart never gives up more than two fifths of the pane.
+fn sidebar_width(total: u16, runs: &[String], rows: &[crate::tags::Row]) -> u16 {
+    const MARK: usize = 6; // cursor, checkbox, colour dot, padding
+    let runs_w = runs.iter().map(|n| n.chars().count()).max().unwrap_or(0) + MARK;
+    let tags_w = rows
+        .iter()
+        .map(|r| {
+            // cursor + indent + twisty + label + " (n)"
+            4 + 2 * r.depth + r.label.chars().count() + if r.leaf { 0 } else { 5 }
+        })
+        .max()
+        .unwrap_or(0);
+    let want = runs_w.max(tags_w).min(u16::MAX as usize) as u16;
+    let ceiling = (total * 2 / 5).clamp(24, 46);
+    want.clamp(24, ceiling)
+}
+
 fn scroll_for(scroll: usize, sel: usize, visible: usize) -> usize {
     if visible == 0 {
         0
@@ -212,6 +235,7 @@ fn scroll_for(scroll: usize, sel: usize, visible: usize) -> usize {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_sidebar(
     buf: &mut Buffer,
     area: Rect,
@@ -220,6 +244,7 @@ fn draw_sidebar(
     ui: &UiState,
     run_names: &[String],
     tags: &[String],
+    rows: &[crate::tags::Row],
 ) {
     // `clamp` panics when its max is below its min, which happened on short
     // terminals (body height 6-8 gave max 2); keep the bound above the min.
@@ -278,17 +303,28 @@ fn draw_sidebar(
     }
     put(buf, area.x, ty, &title, title_style);
     let visible = tags_h.saturating_sub(1) as usize;
+    app.tag_sel = app.tag_sel.min(rows.len().saturating_sub(1));
     app.tag_scroll = scroll_for(app.tag_scroll, app.tag_sel, visible);
+    let w = area.width.saturating_sub(2) as usize;
     for i in 0..visible {
         let idx = app.tag_scroll + i;
-        if idx >= tags.len() {
-            break;
-        }
+        let Some(row) = rows.get(idx) else { break };
         let sel = focused && idx == app.tag_sel;
         let style = if sel { rev() } else { Style::default() };
-        let marker = if idx == app.tag_sel { "▶" } else { " " };
-        let line = format!(" {} {}", marker, tags[idx]);
-        let w = area.width.saturating_sub(2) as usize;
+        let cursor = if idx == app.tag_sel { "▶" } else { " " };
+        // groups carry a twisty and their tag count; leaves are just the name
+        let twisty = if row.leaf {
+            "  "
+        } else if row.expanded {
+            "▾ "
+        } else {
+            "▸ "
+        };
+        let indent = "  ".repeat(row.depth);
+        let count = if row.leaf { String::new() } else { format!(" ({})", row.leaves) };
+        let fixed = 2 + indent.chars().count() + twisty.chars().count() + count.chars().count();
+        let label = crate::tags::elide(&row.label, w.saturating_sub(fixed));
+        let line = format!(" {}{}{}{}{}", cursor, indent, twisty, label, count);
         put(buf, area.x, ty + 1 + i as u16, &format!("{:w$}", line, w = w), style);
     }
 
@@ -324,9 +360,12 @@ fn draw_charts(
         center_msg(buf, area, msg);
         return;
     }
+    // the tag list is a tree, so the selection is a row; the chart follows the
+    // tag under it (or the first tag inside a group)
+    let first = app.selected_tag(tags).unwrap_or(0).min(tags.len() - 1);
     if app.grid {
-        let (cols, rows, n) = grid_shape(area, tags.len() - app.tag_sel);
-        let shown = &tags[app.tag_sel..app.tag_sel + n];
+        let (cols, rows, n) = grid_shape(area, tags.len() - first);
+        let shown = &tags[first..first + n];
         // Spread the remainder over the leading cells rather than leaving a
         // ragged strip of unused columns on the right.
         let (cell_w, extra_w) = (area.width / cols, area.width % cols);
@@ -343,7 +382,7 @@ fn draw_charts(
             draw_chart(buf, cell, app, store, ui, run_names, tag, false, i == 0);
         }
     } else {
-        draw_chart(buf, area, app, store, ui, run_names, &tags[app.tag_sel], true, true);
+        draw_chart(buf, area, app, store, ui, run_names, &tags[first], true, true);
     }
 }
 
@@ -689,6 +728,32 @@ mod tests {
 
     fn shape(w: u16, h: u16, tags: usize) -> (u16, u16, usize) {
         grid_shape(Rect { x: 0, y: 0, width: w, height: h }, tags)
+    }
+
+    fn rows_of(labels: &[(usize, &str, bool)]) -> Vec<crate::tags::Row> {
+        labels
+            .iter()
+            .map(|(depth, label, leaf)| crate::tags::Row {
+                depth: *depth,
+                label: label.to_string(),
+                path: label.to_string(),
+                leaf: *leaf,
+                leaves: 1,
+                expanded: true,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_sidebar_fits_its_content_within_bounds() {
+        let short = rows_of(&[(0, "train", false), (1, "loss", true)]);
+        let runs = vec!["baseline".to_string()];
+        assert_eq!(sidebar_width(200, &runs, &short), 24, "short names keep it narrow");
+
+        let long = rows_of(&[(1, "swh_content-dedup-opc-filtered-code_bd912224", false)]);
+        assert_eq!(sidebar_width(200, &runs, &long), 46, "long names take the ceiling");
+        assert_eq!(sidebar_width(80, &runs, &long), 32, "but never more than two fifths");
+        assert_eq!(sidebar_width(40, &runs, &long), 24, "and never below the floor");
     }
 
     #[test]
