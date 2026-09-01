@@ -47,9 +47,13 @@ the data — panning and zooming through a million points is instant.
   mean value per braille pixel column: a binary search for the visible range,
   then a single linear pass, so the per-frame cost depends on terminal width
   rather than on run length.
-- **Background loading.** Parsing runs on a loader thread behind a mutex the
-  UI holds only while drawing, so the interface stays responsive even while
-  ingesting gigabytes on first start.
+- **Background loading, one file at a time.** A loader thread lists the files
+  that have unread bytes (the only step needing the store), then reads and
+  parses each one with the store unlocked, taking the lock only to append the
+  finished columns. The interface is up in single-digit milliseconds and the
+  charts fill in as runs arrive, however long the whole load takes: on 300
+  runs × 20 000 steps (24M points, ~5 s to read in full) the run list appears
+  at 8 ms and the first curves at 160 ms.
 - **Release profile** with fat LTO and a single codegen unit.
 
 ## Install
@@ -130,6 +134,10 @@ Picking runs from the sidebar (`Shift-Tab` focuses the RUNS list):
 
 The default only ever applies to a run the first time it is seen, so a run
 appearing mid-training never overrides a choice you have already made.
+
+Loading is progressive: runs and tags are listed as soon as the directory is
+walked, and the points stream in behind them, so a large directory is usable
+long before it has finished reading.
 
 Memory is roughly `points × 24 bytes`, and every point stays resident —
 300 runs × 5 tags × 20 000 steps (24M points) measures at 585 MB. Hiding a

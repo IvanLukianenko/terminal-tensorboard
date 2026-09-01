@@ -41,6 +41,19 @@ impl Series {
         self.vals.push(val);
     }
 
+    /// Append another series' columns onto this one.
+    fn absorb(&mut self, mut other: Series) {
+        if let (Some(&last), Some(&first)) = (self.steps.last(), other.steps.first()) {
+            if first < last {
+                self.unsorted = true;
+            }
+        }
+        self.unsorted |= other.unsorted;
+        self.steps.append(&mut other.steps);
+        self.walls.append(&mut other.walls);
+        self.vals.append(&mut other.vals);
+    }
+
     /// Sort by step (rare path: only after a restarted/overlapping run).
     fn ensure_sorted(&mut self) {
         if !self.unsorted {
@@ -79,6 +92,74 @@ pub struct Store {
     pub version: u64,
     pub total_points: u64,
     pub errors: Vec<String>,
+}
+
+/// A file with unread bytes, and where to resume.
+pub struct Pending {
+    run: String,
+    path: PathBuf,
+    offset: u64,
+}
+
+/// One file's worth of parsed points, ready to be merged.
+pub struct Batch {
+    run: String,
+    path: PathBuf,
+    new_offset: u64,
+    corrupt: bool,
+    error: Option<String>,
+    series: BTreeMap<String, Series>,
+    first_wall: Option<f64>,
+    count: u64,
+}
+
+/// Read and parse the appended bytes of one file. Touches no shared state,
+/// so it runs with the store unlocked.
+pub fn load_file(pending: &Pending) -> Option<Batch> {
+    let data = match read_from(&pending.path, pending.offset) {
+        Ok(d) => d,
+        Err(e) => {
+            return Some(Batch {
+                run: pending.run.clone(),
+                path: pending.path.clone(),
+                new_offset: pending.offset,
+                corrupt: true, // unreadable: stop trying this file
+                error: Some(format!("{}: {}", pending.path.display(), e)),
+                series: BTreeMap::new(),
+                first_wall: None,
+                count: 0,
+            })
+        }
+    };
+    if data.is_empty() {
+        return None;
+    }
+    let mut series: BTreeMap<String, Series> = BTreeMap::new();
+    let mut first_wall: Option<f64> = None;
+    let mut count = 0u64;
+    let result = tfevents::parse_chunk(&data, &mut |tag, step, wall, val| {
+        // Lookup by &str so a known tag costs no allocation.
+        let tag_str = std::str::from_utf8(tag).unwrap_or("<invalid-utf8>");
+        let s = match series.get_mut(tag_str) {
+            Some(s) => s,
+            None => series.entry(tag_str.to_string()).or_default(),
+        };
+        s.push(step, wall, val);
+        if wall != 0.0 && first_wall.is_none_or(|w| wall < w) {
+            first_wall = Some(wall);
+        }
+        count += 1;
+    });
+    Some(Batch {
+        run: pending.run.clone(),
+        path: pending.path.clone(),
+        new_offset: pending.offset + result.consumed as u64,
+        corrupt: result.corrupt,
+        error: result.corrupt.then(|| format!("{}: corrupt record", pending.path.display())),
+        series,
+        first_wall,
+        count,
+    })
 }
 
 fn is_event_file(name: &str) -> bool {
@@ -134,74 +215,79 @@ impl Store {
         }
     }
 
-    /// Discover new runs/files and ingest appended bytes.  Returns true if
-    /// any data changed.
-    pub fn refresh(&mut self) -> bool {
+    /// Discover runs and list the files with bytes left to read.
+    ///
+    /// This is the only part of a refresh that needs the store, so callers
+    /// hold the lock for it and then parse each file with the lock released.
+    pub fn pending_files(&mut self) -> Vec<Pending> {
         let logdir = self.logdir.clone();
         self.discover_dir(&logdir);
-
-        let mut changed = false;
-        let run_names: Vec<String> = self.runs.keys().cloned().collect();
-        for run_name in run_names {
-            let pending: Vec<(PathBuf, u64)> = {
-                let run = &self.runs[&run_name];
-                run.files
-                    .iter()
-                    .filter(|(_, f)| !f.dead)
-                    .map(|(p, f)| (p.clone(), f.offset))
-                    .collect()
-            };
-            for (path, offset) in pending {
-                let Ok(meta) = std::fs::metadata(&path) else { continue };
-                if meta.len() <= offset {
+        let mut out = Vec::new();
+        for (run_name, run) in &self.runs {
+            for (path, file) in &run.files {
+                if file.dead {
                     continue;
                 }
-                let data = match read_from(&path, offset) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        self.errors.push(format!("{}: {}", path.display(), e));
-                        self.runs.get_mut(&run_name).unwrap().files.get_mut(&path).unwrap().dead =
-                            true;
-                        continue;
-                    }
-                };
-                let run = self.runs.get_mut(&run_name).unwrap();
-                let mut count = 0u64;
-                let mut first_wall = run.first_wall;
-                let series = &mut run.series;
-                let result = tfevents::parse_chunk(&data, &mut |tag, step, wall, val| {
-                    // BTreeMap<String> lookup by &str avoids allocating for
-                    // existing tags (the overwhelmingly common case).
-                    let tag_str = std::str::from_utf8(tag).unwrap_or("<invalid-utf8>");
-                    let s = match series.get_mut(tag_str) {
-                        Some(s) => s,
-                        None => series.entry(tag_str.to_string()).or_default(),
-                    };
-                    s.push(step, wall, val);
-                    if wall != 0.0 && first_wall.is_none_or(|w| wall < w) {
-                        first_wall = Some(wall);
-                    }
-                    count += 1;
-                });
-                run.first_wall = first_wall;
-                let file = run.files.get_mut(&path).unwrap();
-                file.offset = offset + result.consumed as u64;
-                if result.corrupt {
-                    file.dead = true;
-                    self.errors.push(format!("{}: corrupt record", path.display()));
+                let Ok(meta) = std::fs::metadata(path) else { continue };
+                if meta.len() <= file.offset {
+                    continue;
                 }
-                if count > 0 {
-                    self.total_points += count;
-                    self.version += 1;
-                    changed = true;
+                out.push(Pending {
+                    run: run_name.clone(),
+                    path: path.clone(),
+                    offset: file.offset,
+                });
+            }
+        }
+        out
+    }
+
+    /// Fold one parsed file into the store. Cheap: it moves whole columns
+    /// for a new tag and extends them for a known one, so the lock is held
+    /// for appends only, never for parsing.
+    pub fn merge(&mut self, batch: Batch) -> bool {
+        if let Some(e) = batch.error {
+            self.errors.push(e);
+        }
+        let Some(run) = self.runs.get_mut(&batch.run) else { return false };
+        for (tag, incoming) in batch.series {
+            match run.series.get_mut(&tag) {
+                Some(dst) => dst.absorb(incoming),
+                None => {
+                    run.series.insert(tag, incoming);
                 }
             }
         }
-        if changed {
-            for run in self.runs.values_mut() {
-                for series in run.series.values_mut() {
-                    series.ensure_sorted();
-                }
+        if let Some(w) = batch.first_wall {
+            if run.first_wall.is_none_or(|cur| w < cur) {
+                run.first_wall = Some(w);
+            }
+        }
+        if let Some(file) = run.files.get_mut(&batch.path) {
+            file.offset = batch.new_offset;
+            if batch.corrupt {
+                file.dead = true;
+            }
+        }
+        if batch.count == 0 {
+            return false;
+        }
+        for series in run.series.values_mut() {
+            series.ensure_sorted();
+        }
+        self.total_points += batch.count;
+        self.version += 1;
+        true
+    }
+
+    /// Convenience wrapper that does a whole refresh in one call, holding
+    /// nothing: used by `bench` and the tests, where there is no UI to
+    /// starve.
+    pub fn refresh(&mut self) -> bool {
+        let mut changed = false;
+        for pending in self.pending_files() {
+            if let Some(batch) = load_file(&pending) {
+                changed |= self.merge(batch);
             }
         }
         changed

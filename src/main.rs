@@ -220,7 +220,26 @@ fn run_tui(args: Args) -> std::io::Result<()> {
                 }
                 if first || follow.load(Ordering::Relaxed) {
                     busy.store(true, Ordering::Relaxed);
-                    store.lock().unwrap().refresh();
+                    // Discovery needs the store, so it takes the lock; each
+                    // file is then read and parsed with the lock released and
+                    // merged in a short critical section. The UI stays
+                    // responsive through a long load, and the charts fill in
+                    // run by run instead of appearing all at once.
+                    let pending = store.lock().unwrap().pending_files();
+                    if first && !pending.is_empty() {
+                        // Runs and tags are known now; let the UI draw them
+                        // while their points are still being read.
+                        loaded.store(true, Ordering::Relaxed);
+                        first = false;
+                    }
+                    for p in &pending {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        if let Some(batch) = store::load_file(p) {
+                            store.lock().unwrap().merge(batch);
+                        }
+                    }
                     busy.store(false, Ordering::Relaxed);
                     if first {
                         loaded.store(true, Ordering::Relaxed);
