@@ -131,7 +131,7 @@ scalars are understood, whether written by TensorFlow, PyTorch's
 | `s` / `S` | less / more smoothing (TensorBoard-style debiased EMA) |
 | `L` | toggle log-scale Y |
 | `x` | cycle X axis: step → relative time → wall clock |
-| `g` | grid view: up to 4 charts at once |
+| `g` | grid view: as many charts as fit the pane, up to 3 × 3 |
 | `f` | toggle live follow, `r` reload now |
 | `b` | toggle the sidebar |
 | `?` | help, `q` quit |

@@ -27,7 +27,7 @@ const HELP: &[(&str, &str)] = &[
     ("s / S", "less / more smoothing"),
     ("L", "toggle log-scale Y"),
     ("x", "cycle X axis: step -> reltime -> wall"),
-    ("g", "toggle grid view (up to 4 charts)"),
+    ("g", "grid view: as many charts as fit, up to 3x3"),
     ("f", "toggle live follow    r: reload now"),
     ("b", "toggle sidebar"),
     ("q", "quit"),
@@ -325,24 +325,61 @@ fn draw_charts(
         return;
     }
     if app.grid {
-        let shown = &tags[app.tag_sel..(app.tag_sel + 4).min(tags.len())];
-        let ncols: u16 = if area.width >= 100 && shown.len() > 1 { 2 } else { 1 };
-        let nrows = (shown.len() as u16).div_ceil(ncols);
-        let cell_h = area.height / nrows;
-        let cell_w = area.width / ncols;
+        let (cols, rows, n) = grid_shape(area, tags.len() - app.tag_sel);
+        let shown = &tags[app.tag_sel..app.tag_sel + n];
+        // Spread the remainder over the leading cells rather than leaving a
+        // ragged strip of unused columns on the right.
+        let (cell_w, extra_w) = (area.width / cols, area.width % cols);
+        let (cell_h, extra_h) = (area.height / rows, area.height % rows);
+        let span = |i: u16, size: u16, extra: u16| {
+            let start = i * size + i.min(extra);
+            (start, size + u16::from(i < extra))
+        };
         for (i, tag) in shown.iter().enumerate() {
-            let (r, c) = ((i as u16) / ncols, (i as u16) % ncols);
-            let cell = Rect {
-                x: area.x + c * cell_w,
-                y: area.y + r * cell_h,
-                width: cell_w,
-                height: cell_h,
-            };
+            let (r, c) = ((i as u16) / cols, (i as u16) % cols);
+            let (x, width) = span(c, cell_w, extra_w);
+            let (y, height) = span(r, cell_h, extra_h);
+            let cell = Rect { x: area.x + x, y: area.y + y, width, height };
             draw_chart(buf, cell, app, store, ui, run_names, tag, false, i == 0);
         }
     } else {
         draw_chart(buf, area, app, store, ui, run_names, &tags[app.tag_sel], true, true);
     }
+}
+
+/// Chart count and arrangement for the grid view.
+///
+/// Columns and rows are however many fit at a size still worth reading, up to
+/// three each, so a wide terminal gets 2 or 3 across instead of always one.
+/// The shape is then trimmed to the tags actually available: among the
+/// layouts that hold them, the one leaving fewest empty cells wins, and among
+/// equals the widest — three tags side by side beat three stacked.
+fn grid_shape(area: Rect, available: usize) -> (u16, u16, usize) {
+    /// Below this a cell is mostly axis gutter: 9 columns of labels and the
+    /// axis rule leave ~30 for the plot, which is 60 braille pixels across.
+    const MIN_W: u16 = 40;
+    /// Title, a few rows of plot, and the x labels.
+    const MIN_H: u16 = 9;
+    const MAX_SIDE: u16 = 3;
+
+    let max_cols = (area.width / MIN_W).clamp(1, MAX_SIDE);
+    let max_rows = (area.height / MIN_H).clamp(1, MAX_SIDE);
+    let n = available.clamp(1, (max_cols * max_rows) as usize);
+
+    let mut best: Option<(u16, u16, u16)> = None; // cols, rows, empty cells
+    for cols in 1..=max_cols {
+        let rows = (n as u16).div_ceil(cols);
+        if rows > max_rows {
+            continue;
+        }
+        let empty = cols * rows - n as u16;
+        // cols ascends, so `<=` keeps the widest of the equally tight layouts
+        if best.is_none_or(|(_, _, best_empty)| empty <= best_empty) {
+            best = Some((cols, rows, empty));
+        }
+    }
+    let (cols, rows, _) = best.unwrap_or((1, 1, 0));
+    (cols, rows, n)
 }
 
 struct DrawnSeries<'a> {
@@ -643,5 +680,76 @@ fn draw_help(buf: &mut Buffer, area: Rect) {
     for (i, (keys, desc)) in HELP.iter().take(box_h.saturating_sub(4) as usize).enumerate() {
         put(buf, left + 2, top + 3 + i as u16, &format!("{:18}", keys), overlay_bold());
         put(buf, left + 20, top + 3 + i as u16, desc, overlay());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shape(w: u16, h: u16, tags: usize) -> (u16, u16, usize) {
+        grid_shape(Rect { x: 0, y: 0, width: w, height: h }, tags)
+    }
+
+    #[test]
+    fn columns_follow_the_width() {
+        assert_eq!(shape(60, 30, 9).0, 1, "a narrow pane stays single column");
+        assert_eq!(shape(100, 30, 9).0, 2);
+        assert_eq!(shape(160, 30, 9).0, 3);
+        assert_eq!(shape(400, 30, 9).0, 3, "never more than three across");
+    }
+
+    #[test]
+    fn the_column_thresholds_are_where_they_claim_to_be() {
+        // Pinned literally rather than recomputed: these are widths of the
+        // chart pane, not of the terminal — the sidebar takes 24-34 columns
+        // before this sees anything.
+        for (width, columns) in [(39, 1), (40, 1), (79, 1), (80, 2), (119, 2), (120, 3), (200, 3)] {
+            assert_eq!(shape(width, 30, 9).0, columns, "at pane width {}", width);
+        }
+    }
+
+    #[test]
+    fn rows_follow_the_height() {
+        assert_eq!(shape(160, 10, 9).1, 1, "a short pane fits one row");
+        assert_eq!(shape(160, 20, 9).1, 2);
+        assert_eq!(shape(160, 30, 9).1, 3);
+        assert_eq!(shape(160, 200, 9).1, 3);
+    }
+
+    #[test]
+    fn the_grid_never_exceeds_its_capacity() {
+        for (w, h) in [(60, 30), (100, 30), (160, 30), (160, 10), (40, 6)] {
+            let (cols, rows, n) = shape(w, h, 100);
+            assert_eq!(n, (cols * rows) as usize, "{}x{} left cells unused", w, h);
+            assert!(cols <= 3 && rows <= 3);
+        }
+    }
+
+    #[test]
+    fn the_shape_shrinks_to_the_tags_available() {
+        // one tag never becomes a 3x3 of blanks
+        assert_eq!(shape(160, 30, 1), (1, 1, 1));
+        // two go side by side, using the full height, not stacked
+        assert_eq!(shape(160, 30, 2), (2, 1, 2));
+        assert_eq!(shape(160, 30, 3), (3, 1, 3));
+        // four square up rather than leaving a ragged row of three plus one
+        assert_eq!(shape(160, 30, 4), (2, 2, 4));
+        assert_eq!(shape(160, 30, 6), (3, 2, 6));
+        assert_eq!(shape(160, 30, 9), (3, 3, 9));
+    }
+
+    #[test]
+    fn a_narrow_pane_stacks_within_the_rows_it_has() {
+        assert_eq!(shape(60, 30, 5), (1, 3, 3), "one column, three rows, three tags");
+        assert_eq!(shape(60, 12, 5), (1, 1, 1));
+    }
+
+    #[test]
+    fn even_a_tiny_pane_asks_for_one_chart() {
+        let (cols, rows, n) = shape(10, 3, 5);
+        assert_eq!((cols, rows, n), (1, 1, 1));
+        // and with no tags at all the count never underflows
+        assert_eq!(shape(160, 30, 0), (1, 1, 1));
     }
 }
