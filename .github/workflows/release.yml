@@ -1,11 +1,16 @@
 name: Release
 
-# Push a tag to publish a release:  git tag v0.2.0 && git push origin v0.2.0
-# Or run this workflow by hand from the Actions tab to get the same binaries
-# as downloadable build artifacts, without tagging anything.
+# Three ways in, all producing the same archives:
+#   git push origin v0.3.0            — tag, publishes a release
+#   git push origin release/v0.3.0    — branch, the workflow makes the tag and
+#                                       publishes the same release from it
+#   Actions tab -> Run workflow       — no tag, archives as run artifacts only
+# The branch form exists so a release can be cut without anyone holding
+# tag-push rights locally.
 on:
   push:
     tags: ["v*"]
+    branches: ["release/**"]
   workflow_dispatch:
 
 env:
@@ -100,7 +105,7 @@ jobs:
   release:
     name: Publish release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -125,7 +130,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
+          # a tag push releases itself; a release/<tag> branch names the tag,
+          # which gh creates at this commit
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="${GITHUB_REF_NAME#release/}"
+          fi
+          gh release create "$tag" \
+            --target "${GITHUB_SHA}" \
+            --title "$tag" \
             --generate-notes \
             dist/ttb-* dist/SHA256SUMS
