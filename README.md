@@ -62,18 +62,18 @@ carries a prebuilt binary. One file, no runtime, nothing else to install.
 
 | Platform | Archive |
 | --- | --- |
-| Linux x86-64 | `ttb-0.3.0-x86_64-unknown-linux-musl.tar.gz` — static, runs on any distribution |
-| Linux arm64 | `ttb-0.3.0-aarch64-unknown-linux-gnu.tar.gz` |
-| macOS Apple silicon | `ttb-0.3.0-aarch64-apple-darwin.tar.gz` |
-| macOS Intel | `ttb-0.3.0-x86_64-apple-darwin.tar.gz` |
-| Windows x86-64 | `ttb-0.3.0-x86_64-pc-windows-msvc.zip` |
+| Linux x86-64 | `ttb-0.4.0-x86_64-unknown-linux-musl.tar.gz` — static, runs on any distribution |
+| Linux arm64 | `ttb-0.4.0-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS Apple silicon | `ttb-0.4.0-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `ttb-0.4.0-x86_64-apple-darwin.tar.gz` |
+| Windows x86-64 | `ttb-0.4.0-x86_64-pc-windows-msvc.zip` |
 
 Linux and macOS — take the row that matches your machine and put the binary on
 your `PATH`:
 
 ```bash
-REL=https://github.com/IvanLukianenko/terminal-tensorboard/releases/download/v0.3.0
-PKG=ttb-0.3.0-x86_64-unknown-linux-musl          # or another row from the table
+REL=https://github.com/IvanLukianenko/terminal-tensorboard/releases/download/v0.4.0
+PKG=ttb-0.4.0-x86_64-unknown-linux-musl          # or another row from the table
 
 curl -fsSL -O "$REL/$PKG.tar.gz"
 tar xzf "$PKG.tar.gz"
@@ -84,8 +84,8 @@ ttb ~/runs
 Windows, in PowerShell:
 
 ```powershell
-$pkg = "ttb-0.3.0-x86_64-pc-windows-msvc"
-Invoke-WebRequest "https://github.com/IvanLukianenko/terminal-tensorboard/releases/download/v0.3.0/$pkg.zip" -OutFile "$pkg.zip"
+$pkg = "ttb-0.4.0-x86_64-pc-windows-msvc"
+Invoke-WebRequest "https://github.com/IvanLukianenko/terminal-tensorboard/releases/download/v0.4.0/$pkg.zip" -OutFile "$pkg.zip"
 Expand-Archive "$pkg.zip" -DestinationPath .
 .\$pkg\ttb.exe C:\runs
 ```
@@ -127,8 +127,8 @@ archives and their checksums to a GitHub release, and writes the notes from the
 commit log. Either of these starts it:
 
 ```bash
-git tag v0.3.0 && git push origin v0.3.0   # the tag publishes itself
-git push origin release/v0.3.0             # the workflow creates the tag
+git tag v0.4.0 && git push origin v0.4.0   # the tag publishes itself
+git push origin release/v0.4.0             # the workflow creates the tag
 ```
 
 The branch form is there so a release can be cut without holding tag-push
