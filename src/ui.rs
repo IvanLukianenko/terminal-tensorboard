@@ -45,6 +45,30 @@ fn rev() -> Style {
     Style::default().add_modifier(Modifier::REVERSED)
 }
 
+/// Style for a panel drawn on top of the chart.
+///
+/// `REVERSED` on its own inverts whatever the cell already holds, and any DIM
+/// or BOLD left there by the chart survives underneath, so a panel painted
+/// with it shows the curves through it as coloured and faded bands. Resetting
+/// both colours and clearing those leftovers makes it opaque. (Cells apply
+/// `add` before `sub`, so bold needs its own style rather than being added on
+/// top of one that clears it.)
+fn overlay() -> Style {
+    Style::default()
+        .fg(Color::Reset)
+        .bg(Color::Reset)
+        .add_modifier(Modifier::REVERSED)
+        .remove_modifier(Modifier::DIM | Modifier::BOLD)
+}
+
+fn overlay_bold() -> Style {
+    Style::default()
+        .fg(Color::Reset)
+        .bg(Color::Reset)
+        .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        .remove_modifier(Modifier::DIM)
+}
+
 fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
     let area = buf.area;
     if y >= area.y + area.height || x >= area.x + area.width {
@@ -607,17 +631,17 @@ fn draw_help(buf: &mut Buffer, area: Rect) {
     let top = area.y + (area.height - box_h) / 2;
     let left = area.x + (area.width - box_w) / 2;
     for y in 0..box_h {
-        put(buf, left, top + y, &" ".repeat(box_w as usize), rev());
+        put(buf, left, top + y, &" ".repeat(box_w as usize), overlay());
     }
-    put(buf, left + 2, top + 1, "terminal-tensorboard — keys", rev().add_modifier(Modifier::BOLD));
+    put(
+        buf,
+        left + 2,
+        top + 1,
+        "terminal-tensorboard — keys",
+        overlay().add_modifier(Modifier::BOLD),
+    );
     for (i, (keys, desc)) in HELP.iter().take(box_h.saturating_sub(4) as usize).enumerate() {
-        put(
-            buf,
-            left + 2,
-            top + 3 + i as u16,
-            &format!("{:18}", keys),
-            rev().add_modifier(Modifier::BOLD),
-        );
-        put(buf, left + 20, top + 3 + i as u16, desc, rev());
+        put(buf, left + 2, top + 3 + i as u16, &format!("{:18}", keys), overlay_bold());
+        put(buf, left + 20, top + 3 + i as u16, desc, overlay());
     }
 }
