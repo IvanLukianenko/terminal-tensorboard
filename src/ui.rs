@@ -16,9 +16,10 @@ use crate::store::{Series, Store};
 const HELP: &[(&str, &str)] = &[
     ("Tab / Shift-Tab", "cycle focus: runs -> tags -> chart"),
     ("j k / arrows", "move in lists; prev/next tag in chart"),
-    ("Space", "toggle run on/off        a: toggle all runs"),
-    ("Enter", "open tag in chart"),
-    ("/", "filter tags (Enter apply, Esc cancel)"),
+    ("Space", "show/hide the selected run"),
+    ("Enter", "on a run: show only it · on a tag: open it"),
+    ("a", "show/hide every run the filter lists"),
+    ("/", "filter the focused list — runs or tags"),
     ("h l / arrows", "move data cursor (chart focus), c/Esc clear"),
     ("+ - [ ] 0", "zoom in/out, pan left/right, reset view"),
     ("s / S", "less / more smoothing"),
@@ -86,12 +87,13 @@ pub fn draw(f: &mut Frame, app: &mut App, store: &Store, ui: &UiState) {
         return;
     }
 
-    let run_names = store.run_names();
+    let all_runs = store.run_names();
+    let run_names = app.visible_runs(&all_runs);
     let tags = visible_tags(store, app);
     app.run_sel = app.run_sel.min(run_names.len().saturating_sub(1));
     app.tag_sel = app.tag_sel.min(tags.len().saturating_sub(1));
 
-    draw_header(buf, area, app, store, ui, &run_names, &tags);
+    draw_header(buf, area, app, store, ui, &all_runs, &tags);
     draw_footer(buf, area, app);
 
     let body = Rect { x: area.x, y: area.y + 1, width: area.width, height: area.height - 2 };
@@ -103,7 +105,7 @@ pub fn draw(f: &mut Frame, app: &mut App, store: &Store, ui: &UiState) {
     } else {
         body
     };
-    draw_charts(buf, chart_area, app, store, ui, &run_names, &tags);
+    draw_charts(buf, chart_area, app, store, ui, &all_runs, &tags);
 
     if app.help_visible {
         draw_help(buf, area);
@@ -144,12 +146,17 @@ fn draw_header(
 
 fn draw_footer(buf: &mut Buffer, area: Rect, app: &App) {
     let text = if app.filter_editing {
-        format!(" /{}▏  (Enter apply · Esc cancel)", app.filter_text)
+        let (what, buf) = if app.filter_target == Focus::Runs {
+            ("runs", &app.run_filter_text)
+        } else {
+            ("tags", &app.filter_text)
+        };
+        format!(" filter {}: {}▏  (Enter apply · Esc cancel)", what, buf)
     } else if std::time::Instant::now() < app.flash_until {
         format!(" {}", app.flash_msg)
     } else {
-        "  Tab:focus  Space:run on/off  Enter:open  /:filter  s/S:smooth  +/-/[/]:zoom·pan  \
-         g:grid  L:log  x:axis  f:follow  ?:help  q:quit"
+        "  Tab:focus  Space:run on/off  Enter:solo/open  a:all  /:filter  s/S:smooth  \
+         +/-/[/]:zoom·pan  g:grid  L:log  x:axis  f:follow  ?:help  q:quit"
             .to_string()
     };
     put(buf, area.x, area.y + area.height - 1, &format!("{:w$}", text, w = area.width as usize), dim());
@@ -178,13 +185,24 @@ fn draw_sidebar(
     run_names: &[String],
     tags: &[String],
 ) {
-    let runs_h = ((run_names.len() + 1) as u16).clamp(3, area.height / 3);
+    // `clamp` panics when its max is below its min, which happened on short
+    // terminals (body height 6-8 gave max 2); keep the bound above the min.
+    let runs_h = ((run_names.len() + 1) as u16).clamp(2, (area.height / 3).max(2));
     let tags_h = area.height - runs_h;
 
     // runs
     let focused = app.focus == Focus::Runs;
     let title_style = if focused { bold().add_modifier(Modifier::REVERSED) } else { bold() };
-    put(buf, area.x, area.y, " RUNS ", title_style);
+    let mut runs_title = if app.run_filter_text.is_empty() {
+        format!(" RUNS ({})", run_names.len())
+    } else {
+        format!(" RUNS ({}/{})", run_names.len(), store.runs.len())
+    };
+    if !app.run_filter_text.is_empty() || (app.filter_editing && app.filter_target == Focus::Runs) {
+        runs_title.push_str("  /");
+        runs_title.push_str(&app.run_filter_text);
+    }
+    put(buf, area.x, area.y, &runs_title, title_style);
     let visible = runs_h.saturating_sub(1) as usize;
     app.run_scroll = scroll_for(app.run_scroll, app.run_sel, visible);
     for i in 0..visible {

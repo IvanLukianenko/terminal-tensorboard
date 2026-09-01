@@ -70,6 +70,7 @@ ttb LOGDIR --no-follow      # one-shot view
 ttb LOGDIR --refresh 0.5    # poll twice a second
 ttb LOGDIR --smoothing 0.9  # heavier EMA smoothing
 ttb LOGDIR --x reltime      # x axis: step | reltime | wall
+ttb LOGDIR --max-runs 20    # show 20 runs by default (0 = every run)
 ttb bench LOGDIR            # time a cold load, a refresh tick and a frame
 ```
 
@@ -84,9 +85,10 @@ scalars are understood, whether written by TensorFlow, PyTorch's
 | --- | --- |
 | `Tab` / `Shift-Tab` | cycle focus: runs → tags → chart |
 | `j` `k` / arrows | move in lists; prev/next tag when chart is focused |
-| `Space` | toggle a run on/off (`a` toggles all) |
-| `Enter` | open the selected tag in the chart |
-| `/` | filter tags (Enter apply, Esc cancel) |
+| `Space` | show/hide the selected run |
+| `Enter` | on a run: show only it (solo) · on a tag: open it |
+| `a` | show/hide every run the filter currently lists |
+| `/` | filter the focused list — runs or tags (Enter apply, Esc cancel) |
 | `h` `l` / arrows | move the data cursor over the chart (`c`/Esc clears) |
 | `+` `-` | zoom in / out (centred on the cursor) |
 | `[` `]` | pan left / right, `0` resets the view |
@@ -108,6 +110,30 @@ ttb gen-demo demo_logs --steps 80000   # ~1M points
 ttb gen-demo demo_logs --live          # keeps appending, for live-follow
 ttb demo_logs
 ```
+
+## Many runs
+
+A log directory with hundreds of runs loads fine, but putting all of them on
+one chart is unreadable, so **only the first 8 runs are shown by default** —
+the rest are loaded and listed, just switched off. A one-line notice on
+startup says how many were found. `--max-runs N` changes the number;
+`--max-runs 0` shows every run.
+
+Picking runs from the sidebar (`Shift-Tab` focuses the RUNS list):
+
+- `Space` shows or hides the run under the cursor.
+- `Enter` solos it — only that run stays on the chart.
+- `/` filters the run list by name; the filter is a plain case-insensitive
+  substring.
+- `a` shows or hides **everything the filter lists**, so `/lr_` then `a`
+  switches on exactly that group and leaves the rest alone.
+
+The default only ever applies to a run the first time it is seen, so a run
+appearing mid-training never overrides a choice you have already made.
+
+Memory is roughly `points × 24 bytes`, and every point stays resident —
+300 runs × 5 tags × 20 000 steps (24M points) measures at 585 MB. Hiding a
+run removes it from the chart, not from memory.
 
 ## Run colors
 
@@ -145,7 +171,7 @@ legend, so identity is never carried by color alone.
 ## Development
 
 ```bash
-cargo test        # 17 unit tests: parser, store, plotting, colors
+cargo test        # 25 unit tests: parser, store, plotting, colors, run selection
 cargo clippy      # clean
 ```
 

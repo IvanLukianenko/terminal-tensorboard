@@ -32,6 +32,8 @@ OPTIONS:
     --no-follow       do not tail files for new data
     --smoothing W     initial EMA smoothing weight, 0..0.99 (default: 0.6)
     --x MODE          initial x axis: step | reltime | wall (default: step)
+    --max-runs N      runs shown by default; the rest start hidden and can be
+                      switched on in the sidebar. 0 shows every run (default: 8)
     -h, --help        show this help
     -V, --version     show version
 ";
@@ -42,6 +44,7 @@ struct Args {
     follow: bool,
     smoothing: f64,
     xmode: XMode,
+    max_runs: usize,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -51,6 +54,9 @@ fn parse_args() -> Result<Args, String> {
     let mut follow = true;
     let mut smoothing = 0.6f64;
     let mut xmode = XMode::Step;
+    // Eight is the number of hues the palette gives before they repeat, and
+    // more than eight overlaid series is already hard to read.
+    let mut max_runs = 8usize;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -75,6 +81,12 @@ fn parse_args() -> Result<Args, String> {
                     .and_then(|v| v.parse().ok())
                     .ok_or("--smoothing needs a number")?;
             }
+            "--max-runs" => {
+                max_runs = args
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .ok_or("--max-runs needs a whole number (0 = all)")?;
+            }
             "--x" => {
                 xmode = match args.next().as_deref() {
                     Some("step") => XMode::Step,
@@ -96,7 +108,7 @@ fn parse_args() -> Result<Args, String> {
     if !logdir.is_dir() {
         return Err(format!("not a directory: {}", logdir.display()));
     }
-    Ok(Args { logdir, refresh: refresh.max(0.2), follow, smoothing, xmode })
+    Ok(Args { logdir, refresh: refresh.max(0.2), follow, smoothing, xmode, max_runs })
 }
 
 fn main() {
@@ -257,7 +269,7 @@ fn event_loop(
     wake_tx: &mpsc::Sender<()>,
     args: Args,
 ) -> std::io::Result<()> {
-    let mut app = App::new(args.follow, args.smoothing, args.xmode);
+    let mut app = App::new(args.follow, args.smoothing, args.xmode, args.max_runs);
     let palette = colors::Palette::detect();
     let mut last_version = u64::MAX;
     let mut dirty = true;
@@ -269,6 +281,19 @@ fn event_loop(
             if s.version != last_version {
                 last_version = s.version;
                 dirty = true;
+            }
+            let run_names = s.run_names();
+            drop(s);
+            let before = app.capped_notice;
+            app.sync_runs(&run_names);
+            if before.is_none() {
+                if let Some(total) = app.capped_notice {
+                    app.flash(&format!(
+                        "{} runs found — showing the first {}. Shift-Tab for RUNS, then Space to add, / to filter",
+                        total, app.max_runs
+                    ));
+                    dirty = true;
+                }
             }
         }
         if app.loaded && dirty {

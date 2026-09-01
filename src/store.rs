@@ -99,7 +99,12 @@ impl Store {
 
     fn discover_dir(&mut self, dir: &Path) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for entry in entries.flatten() {
+        // `read_dir` yields in filesystem order, which is arbitrary. Sort so
+        // runs are discovered — and so colour slots are handed out — in name
+        // order, the same order the sidebar lists them in.
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
             let path = entry.path();
             let Ok(ft) = entry.file_type() else { continue };
             if ft.is_dir() || (ft.is_symlink() && path.is_dir()) {
