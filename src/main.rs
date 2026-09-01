@@ -34,6 +34,8 @@ OPTIONS:
     --x MODE          initial x axis: step | reltime | wall (default: step)
     --max-runs N      runs shown by default; the rest start hidden and can be
                       switched on in the sidebar. 0 shows every run (default: 8)
+    --max-points N    points kept per run+tag; past this the series is thinned
+                      to an even subsample. 0 keeps every point (default: 100000)
     -h, --help        show this help
     -V, --version     show version
 ";
@@ -45,6 +47,7 @@ struct Args {
     smoothing: f64,
     xmode: XMode,
     max_runs: usize,
+    max_points: usize,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -57,6 +60,10 @@ fn parse_args() -> Result<Args, String> {
     // Eight is the number of hues the palette gives before they repeat, and
     // more than eight overlaid series is already hard to read.
     let mut max_runs = 8usize;
+    // Far more than a terminal can resolve — a 400-column chart still gets
+    // 250 points per column at this cap — so thinning stays invisible while
+    // bounding what one very long run can cost.
+    let mut max_points = 100_000usize;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -87,6 +94,12 @@ fn parse_args() -> Result<Args, String> {
                     .and_then(|v| v.parse().ok())
                     .ok_or("--max-runs needs a whole number (0 = all)")?;
             }
+            "--max-points" => {
+                max_points = args
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .ok_or("--max-points needs a whole number (0 = keep all)")?;
+            }
             "--x" => {
                 xmode = match args.next().as_deref() {
                     Some("step") => XMode::Step,
@@ -108,7 +121,7 @@ fn parse_args() -> Result<Args, String> {
     if !logdir.is_dir() {
         return Err(format!("not a directory: {}", logdir.display()));
     }
-    Ok(Args { logdir, refresh: refresh.max(0.2), follow, smoothing, xmode, max_runs })
+    Ok(Args { logdir, refresh: refresh.max(0.2), follow, smoothing, xmode, max_runs, max_points })
 }
 
 fn main() {
@@ -140,19 +153,31 @@ fn main() {
     // bench subcommand: time a cold load + a steady-state refresh tick
     if argv.get(1).map(String::as_str) == Some("bench") {
         let dir = PathBuf::from(argv.get(2).map(String::as_str).unwrap_or("."));
+        let cap = argv
+            .iter()
+            .position(|a| a == "--max-points")
+            .and_then(|i| argv.get(i + 1))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0usize);
         let t0 = std::time::Instant::now();
-        let mut store = Store::new(&dir);
+        let mut store = Store::new(&dir, cap);
         store.refresh();
         let cold = t0.elapsed();
         let t0 = std::time::Instant::now();
         store.refresh();
         let tick = t0.elapsed();
+        let stored: usize =
+            store.runs.values().flat_map(|r| r.series.values()).map(|s| s.len()).sum();
         println!(
             "cold load: {} points in {:.0?} ({:.1}M pts/s); steady-state tick: {:.0?}",
             store.total_points,
             cold,
             store.total_points as f64 / cold.as_secs_f64() / 1e6,
             tick,
+        );
+        println!(
+            "stored: {} points (cap {}/series, thinning ÷{})",
+            stored, cap, store.max_stride
         );
         // render prep (bucketize + smooth) for the largest series, to 400 pixel columns
         if let Some((len, dur)) = store
@@ -197,7 +222,7 @@ fn main() {
 }
 
 fn run_tui(args: Args) -> std::io::Result<()> {
-    let store = Arc::new(Mutex::new(Store::new(&args.logdir)));
+    let store = Arc::new(Mutex::new(Store::new(&args.logdir, args.max_points)));
     let follow_flag = Arc::new(AtomicBool::new(args.follow));
     let loaded_flag = Arc::new(AtomicBool::new(false));
     let busy_flag = Arc::new(AtomicBool::new(false));

@@ -128,12 +128,18 @@ fn draw_header(
         "paused"
     };
     let left = format!(" ttb  {} ", store.logdir.display());
+    let thinned = if store.max_stride > 1 {
+        format!(" ÷{}", store.max_stride)
+    } else {
+        String::new()
+    };
     let right = format!(
-        " runs {}/{} │ tags {} │ pts {} │ {} │ x:{} │ y:{} │ smooth {:.2} ",
+        " runs {}/{} │ tags {} │ pts {}{} │ {} │ x:{} │ y:{} │ smooth {:.2} ",
         enabled,
         run_names.len(),
         tags.len(),
         fmt_count(store.total_points),
+        thinned,
         state,
         app.xmode.label(),
         if app.log_y { "log" } else { "lin" },

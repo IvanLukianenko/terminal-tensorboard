@@ -75,6 +75,7 @@ ttb LOGDIR --refresh 0.5    # poll twice a second
 ttb LOGDIR --smoothing 0.9  # heavier EMA smoothing
 ttb LOGDIR --x reltime      # x axis: step | reltime | wall
 ttb LOGDIR --max-runs 20    # show 20 runs by default (0 = every run)
+ttb LOGDIR --max-points 5000 # keep 5000 points per run+tag (0 = keep all)
 ttb bench LOGDIR            # time a cold load, a refresh tick and a frame
 ```
 
@@ -139,9 +140,34 @@ Loading is progressive: runs and tags are listed as soon as the directory is
 walked, and the points stream in behind them, so a large directory is usable
 long before it has finished reading.
 
-Memory is roughly `points × 24 bytes`, and every point stays resident —
-300 runs × 5 tags × 20 000 steps (24M points) measures at 585 MB. Hiding a
-run removes it from the chart, not from memory.
+## Memory and thinning
+
+A stored point costs 24 bytes (step, wall-clock, value), so a series is
+bounded by `--max-points` — **100 000 per run+tag by default**, which is far
+more than a terminal can resolve: a 400-column chart still averages 250
+points per column, and zooming 100× still leaves a thousand. `--max-points 0`
+keeps every point.
+
+Past the cap a series is **thinned to an even subsample**, never averaged or
+interpolated — every point drawn is a point that was logged. The stride
+doubles each time the cap is reached (the header then reads `pts 970k ÷128`),
+and it is keyed to a running count of points *offered* rather than to the
+stored length, so the sample stays even from the first step to the last: a
+run tailed live in 20-point appends keeps exactly the same points as the same
+run loaded cold in one pass.
+
+Thinning happens while parsing, not afterwards, and files are read in 4 MiB
+slices, so neither a series nor the read buffer has to hold a whole large
+file. Measured on 3 runs × 5 tags × 80 000 steps (970k points, 50 MB):
+
+| `--max-points` | stored | thinning | peak RSS |
+| --- | --- | --- | --- |
+| 0 (keep all) | 969 600 | ÷1 | 40 MB |
+| 10 000 | 129 600 | ÷8 | 19 MB |
+| 1 000 | 9 900 | ÷128 | 15 MB |
+
+The cap is per series, so total memory scales with the number of runs and
+tags as well: hiding a run takes it off the chart, not out of memory.
 
 ## Run colors
 
@@ -179,7 +205,7 @@ legend, so identity is never carried by color alone.
 ## Development
 
 ```bash
-cargo test        # 25 unit tests: parser, store, plotting, colors, run selection
+cargo test        # 33 unit tests: parser, store, thinning, plotting, colors, run selection
 cargo clippy      # clean
 ```
 
