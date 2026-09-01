@@ -1,6 +1,7 @@
 //! ttb — an ultra-fast terminal UI for TensorBoard training logs.
 
 mod app;
+mod colors;
 mod gen;
 mod plot;
 mod store;
@@ -257,7 +258,7 @@ fn event_loop(
     args: Args,
 ) -> std::io::Result<()> {
     let mut app = App::new(args.follow, args.smoothing, args.xmode);
-    let ui_colors = ui::palette();
+    let palette = colors::Palette::detect();
     let mut last_version = u64::MAX;
     let mut dirty = true;
 
@@ -271,12 +272,12 @@ fn event_loop(
             }
         }
         if app.loaded && dirty {
-            let ui_state = ui::UiState { colors: ui_colors.clone(), busy: busy_flag.load(Ordering::Relaxed) };
+            let ui_state = ui::UiState { palette: palette.clone(), busy: busy_flag.load(Ordering::Relaxed) };
             let s = store.lock().unwrap();
             terminal.draw(|f| ui::draw(f, &mut app, &s, &ui_state))?;
             dirty = false;
         } else if !app.loaded {
-            let ui_state = ui::UiState { colors: ui_colors.clone(), busy: true };
+            let ui_state = ui::UiState { palette: palette.clone(), busy: true };
             let s = store.lock().unwrap();
             terminal.draw(|f| ui::draw(f, &mut app, &s, &ui_state))?;
         }

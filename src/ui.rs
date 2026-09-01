@@ -9,6 +9,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
 
 use crate::app::{App, Focus, XMode};
+use crate::colors::{Dash, Palette};
 use crate::plot::{bucketize, ema_smooth, fmt_count, fmt_duration, fmt_num, nice_ticks, BrailleCanvas};
 use crate::store::{Series, Store};
 
@@ -28,19 +29,6 @@ const HELP: &[(&str, &str)] = &[
     ("b", "toggle sidebar"),
     ("q", "quit"),
 ];
-
-pub fn palette() -> Vec<Color> {
-    let has_256 = std::env::var("TERM").map(|t| t.contains("256") || t.contains("kitty") || t.contains("alacritty")).unwrap_or(false)
-        || std::env::var("COLORTERM").is_ok();
-    if has_256 {
-        [39u8, 214, 204, 113, 177, 44, 209, 105, 190, 81, 171, 222]
-            .iter()
-            .map(|&i| Color::Indexed(i))
-            .collect()
-    } else {
-        vec![Color::Cyan, Color::Yellow, Color::Magenta, Color::Green, Color::Red, Color::Blue]
-    }
-}
 
 fn dim() -> Style {
     Style::default().add_modifier(Modifier::DIM)
@@ -64,14 +52,15 @@ fn put(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
 }
 
 pub struct UiState {
-    pub colors: Vec<Color>,
+    pub palette: Palette,
     pub busy: bool,
 }
 
-impl UiState {
-    fn run_color(&self, idx: usize) -> Color {
-        self.colors[idx % self.colors.len()]
-    }
+/// Colour and stroke a run is drawn with. Derived from the run's own colour
+/// slot, so it does not change when other runs appear or are toggled off.
+fn run_style(store: &Store, ui: &UiState, name: &str) -> (Color, Dash) {
+    let slot = store.runs.get(name).map_or(0, |r| r.color_slot);
+    (ui.palette.color(slot), ui.palette.dash(slot))
 }
 
 /// Filtered tag list for the current filter text.
@@ -109,7 +98,7 @@ pub fn draw(f: &mut Frame, app: &mut App, store: &Store, ui: &UiState) {
     let chart_area = if app.sidebar {
         let side_w = (area.width / 3).clamp(24, 34);
         let side = Rect { width: side_w, ..body };
-        draw_sidebar(buf, side, app, ui, &run_names, &tags);
+        draw_sidebar(buf, side, app, store, ui, &run_names, &tags);
         Rect { x: body.x + side_w, width: body.width - side_w, ..body }
     } else {
         body
@@ -184,6 +173,7 @@ fn draw_sidebar(
     buf: &mut Buffer,
     area: Rect,
     app: &mut App,
+    store: &Store,
     ui: &UiState,
     run_names: &[String],
     tags: &[String],
@@ -209,7 +199,8 @@ fn draw_sidebar(
         let y = area.y + 1 + i as u16;
         let mark = if on { "▣" } else { "☐" };
         put(buf, area.x, y, &format!(" {} ", mark), row_style);
-        put(buf, area.x + 3, y, "●", Style::default().fg(ui.run_color(idx)).add_modifier(Modifier::BOLD));
+        let (color, dash) = run_style(store, ui, name);
+        put(buf, area.x + 3, y, dash.marker(), Style::default().fg(color).add_modifier(Modifier::BOLD));
         let label_style = if on { row_style } else { row_style.add_modifier(Modifier::DIM) };
         let label = format!(" {}", name);
         let w = area.width.saturating_sub(6) as usize;
@@ -290,6 +281,7 @@ fn draw_charts(
 
 struct DrawnSeries<'a> {
     color: Color,
+    dash: Dash,
     name: &'a str,
     pts: Vec<(usize, f64)>,
     series: &'a Series,
@@ -334,15 +326,15 @@ fn draw_chart(
     put(buf, area.x + gutter + 1, area.y, &format!("{}{}", marker, tag), title_style);
 
     // gather enabled series holding this tag
-    let mut series: Vec<(usize, &str, &Series, Option<f64>)> = Vec::new();
-    for (idx, name) in run_names.iter().enumerate() {
+    let mut series: Vec<(&str, &Series, Option<f64>)> = Vec::new();
+    for name in run_names.iter() {
         if app.disabled.contains(name) {
             continue;
         }
         if let Some(run) = store.runs.get(name) {
             if let Some(s) = run.series.get(tag) {
                 if !s.is_empty() {
-                    series.push((idx, name, s, run.first_wall));
+                    series.push((name, s, run.first_wall));
                 }
             }
         }
@@ -355,7 +347,7 @@ fn draw_chart(
     // full X domain
     let mut xmin = f64::INFINITY;
     let mut xmax = f64::NEG_INFINITY;
-    for (_, _, s, fw) in &series {
+    for (_, s, fw) in &series {
         let off = xs_offset(app, s, *fw);
         let xat = x_at(app, s);
         xmin = xmin.min(xat(0) - off);
@@ -372,7 +364,7 @@ fn draw_chart(
     let mut drawn: Vec<DrawnSeries> = Vec::new();
     let mut vmin = f64::INFINITY;
     let mut vmax = f64::NEG_INFINITY;
-    for (idx, name, s, fw) in &series {
+    for (name, s, fw) in &series {
         let off = xs_offset(app, s, *fw);
         let xat = x_at(app, s);
         let mut pts = bucketize(s.len(), &xat, &s.vals, lo + off, hi + off, canvas.px_w);
@@ -390,7 +382,8 @@ fn draw_chart(
             vmin = vmin.min(v);
             vmax = vmax.max(v);
         }
-        drawn.push(DrawnSeries { color: ui.run_color(*idx), name, pts, series: s, off });
+        let (color, dash) = run_style(store, ui, name);
+        drawn.push(DrawnSeries { color, dash, name, pts, series: s, off });
     }
     if drawn.is_empty() || vmin > vmax {
         center_msg(buf, Rect { y: area.y + 1, height: plot_h as u16, ..area }, "no drawable points");
@@ -419,12 +412,16 @@ fn draw_chart(
     for d in &drawn {
         let ci = color_of.iter().position(|c| *c == d.color).unwrap() as u8 + 1;
         let mut prev: Option<(i64, i64)> = None;
+        let mut phase = 0u32;
         for &(col, v) in &d.pts {
             let px = col as i64;
             let py = to_py(v);
             match prev {
-                Some((ax, ay)) => canvas.line(ax, ay, px, py, ci),
-                None => canvas.dot(px, py, ci),
+                Some((ax, ay)) => canvas.line_styled((ax, ay), (px, py), ci, d.dash, &mut phase),
+                None => {
+                    canvas.dot(px, py, ci);
+                    phase = phase.wrapping_add(1);
+                }
             }
             prev = Some((px, py));
         }
@@ -528,7 +525,7 @@ fn draw_legend(
         let line_len = text.chars().count() as u16 + 2;
         let x = (area.x + area.width).saturating_sub(line_len + 1).max(area.x + gutter + 1);
         let y = area.y + 1 + i as u16;
-        put(buf, x, y, "●", Style::default().fg(d.color).add_modifier(Modifier::BOLD));
+        put(buf, x, y, d.dash.marker(), Style::default().fg(d.color).add_modifier(Modifier::BOLD));
         put(buf, x + 2, y, &text, Style::default());
     }
 }

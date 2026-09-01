@@ -32,14 +32,35 @@ impl BrailleCanvas {
         }
     }
 
-    pub fn line(&mut self, mut x0: i64, mut y0: i64, x1: i64, y1: i64, color: u8) {
+    #[cfg(test)]
+    pub fn line(&mut self, x0: i64, y0: i64, x1: i64, y1: i64, color: u8) {
+        let mut phase = 0u32;
+        self.line_styled((x0, y0), (x1, y1), color, crate::colors::Dash::SOLID, &mut phase);
+    }
+
+    /// Bresenham line stroked through `dash`.  `phase` carries the dash
+    /// position across the segments of one polyline, so the pattern runs
+    /// continuously along a series instead of restarting at every point.
+    pub fn line_styled(
+        &mut self,
+        from: (i64, i64),
+        to: (i64, i64),
+        color: u8,
+        dash: crate::colors::Dash,
+        phase: &mut u32,
+    ) {
+        let (mut x0, mut y0) = from;
+        let (x1, y1) = to;
         let dx = (x1 - x0).abs();
         let dy = -(y1 - y0).abs();
         let sx = if x0 < x1 { 1 } else { -1 };
         let sy = if y0 < y1 { 1 } else { -1 };
         let mut err = dx + dy;
         loop {
-            self.dot(x0, y0, color);
+            if dash.covers(*phase) {
+                self.dot(x0, y0, color);
+            }
+            *phase = phase.wrapping_add(1);
             if x0 == x1 && y0 == y1 {
                 return;
             }

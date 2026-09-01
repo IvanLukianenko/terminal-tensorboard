@@ -411,11 +411,11 @@ mod tests {
 
     #[test]
     fn tensor_scalar_roundtrip() {
-        let data = record("loss", 5, 1.0, 3.14159, true);
+        let data = record("loss", 5, 1.0, 4.0625, true);
         let (pts, res) = collect(&data);
         assert_eq!(res.consumed, data.len());
         assert_eq!(pts.len(), 1);
-        assert!((pts[0].3 - 3.14159).abs() < 1e-4);
+        assert!((pts[0].3 - 4.0625).abs() < 1e-4);
     }
 
     #[test]

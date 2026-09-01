@@ -64,11 +64,17 @@ pub struct Run {
     files: BTreeMap<PathBuf, EventFile>,
     pub series: BTreeMap<String, Series>,
     pub first_wall: Option<f64>,
+    /// Categorical colour slot, handed out once when the run is discovered.
+    /// Never recomputed, so a run keeps its colour as other runs appear or
+    /// are toggled off.
+    pub color_slot: usize,
 }
 
 pub struct Store {
     pub logdir: PathBuf,
     pub runs: BTreeMap<String, Run>,
+    /// Next colour slot to hand out; only ever increases.
+    next_color_slot: usize,
     /// Bumped on every data change; the UI redraws when it moves.
     pub version: u64,
     pub total_points: u64,
@@ -84,6 +90,7 @@ impl Store {
         Store {
             logdir: logdir.to_path_buf(),
             runs: BTreeMap::new(),
+            next_color_slot: 0,
             version: 0,
             total_points: 0,
             errors: Vec::new(),
@@ -104,11 +111,19 @@ impl Store {
                     .map(|p| p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
                     .unwrap_or_default();
                 let run_name = if rel.is_empty() { ".".to_string() } else { rel };
-                let run = self.runs.entry(run_name).or_insert_with(|| Run {
-                    files: BTreeMap::new(),
-                    series: BTreeMap::new(),
-                    first_wall: None,
-                });
+                if !self.runs.contains_key(&run_name) {
+                    self.runs.insert(
+                        run_name.clone(),
+                        Run {
+                            files: BTreeMap::new(),
+                            series: BTreeMap::new(),
+                            first_wall: None,
+                            color_slot: self.next_color_slot,
+                        },
+                    );
+                    self.next_color_slot += 1;
+                }
+                let run = self.runs.get_mut(&run_name).unwrap();
                 run.files.entry(path).or_insert(EventFile { offset: 0, dead: false });
             }
         }
@@ -243,6 +258,35 @@ mod tests {
         assert!(store.refresh());
         assert_eq!(store.runs["run1"].series["loss"].steps, vec![1, 2]);
         assert!(!store.refresh()); // nothing new
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn a_new_run_does_not_repaint_the_existing_ones() {
+        let tmp = std::env::temp_dir().join(format!("ttb-color-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        // "zzz" sorts last now, but "aaa" appearing later must not take its slot
+        for name in ["mmm", "zzz"] {
+            std::fs::create_dir_all(tmp.join(name)).unwrap();
+            let mut f = File::create(tmp.join(name).join("events.out.tfevents.1.h")).unwrap();
+            f.write_all(&frame_record(&encode_scalar_event("loss", 1, 1.0, 0.5, false))).unwrap();
+        }
+        let mut store = Store::new(&tmp);
+        store.refresh();
+        let (mmm, zzz) = (store.runs["mmm"].color_slot, store.runs["zzz"].color_slot);
+        assert_ne!(mmm, zzz, "runs discovered together get different slots");
+
+        // a run appearing later sorts first alphabetically but takes a fresh slot
+        std::fs::create_dir_all(tmp.join("aaa")).unwrap();
+        let mut f = File::create(tmp.join("aaa").join("events.out.tfevents.1.h")).unwrap();
+        f.write_all(&frame_record(&encode_scalar_event("loss", 1, 1.0, 0.5, false))).unwrap();
+        f.flush().unwrap();
+        store.refresh();
+        assert_eq!(store.runs["mmm"].color_slot, mmm, "existing run was repainted");
+        assert_eq!(store.runs["zzz"].color_slot, zzz, "existing run was repainted");
+        let aaa = store.runs["aaa"].color_slot;
+        assert!(aaa != mmm && aaa != zzz, "new run reused a taken slot");
 
         std::fs::remove_dir_all(&tmp).ok();
     }

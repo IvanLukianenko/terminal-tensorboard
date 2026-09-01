@@ -109,13 +109,33 @@ ttb gen-demo demo_logs --live          # keeps appending, for live-follow
 ttb demo_logs
 ```
 
+## Run colors
+
+Each run is drawn in its own color, from a fixed order of eight hues — blue,
+orange, aqua, yellow, magenta, green, violet, red — validated for
+colorblind separation and for contrast against the terminal background
+(CVD ΔE ≥ 8 on adjacent pairs, all eight ≥ 3:1 contrast).
+
+- **A run keeps its color.** The slot is assigned once, when the run is first
+  discovered, and never recomputed — so switching a run off, or a new run
+  appearing mid-training, never repaints the others.
+- **Past eight runs the hues repeat, but the stroke changes**: runs 9–16 are
+  drawn dashed, 17+ dotted, and their legend marker changes with them
+  (`●` → `◆` → `▪`). Two runs never share both a hue and a stroke, so the
+  chart itself stays readable without cross-checking the legend.
+- **The palette follows the terminal.** Truecolor terminals get the exact
+  hues; 256-color terminals get them snapped to the nearest xterm index that
+  still clears the lightness and chroma gates; anything else falls back to the
+  basic ANSI eight in the same order. Detection is from `COLORTERM`/`TERM`.
+
+Every run's name sits beside its color in the sidebar and in the chart
+legend, so identity is never carried by color alone.
+
 ## Notes
 
 - Smoothing is applied to the per-column bucket means (each already the mean
   of the raw points in that column), which matches TensorBoard's look while
   staying O(width) per frame.
-- Colors adapt to the terminal: a 256-color palette when available, the basic
-  8 otherwise.
 - Corrupt or truncated event files never crash the viewer — parsing stops at
   the first bad record and keeps everything before it.
 - Record CRCs are not verified on read. Framing plus protobuf structure is
@@ -125,14 +145,15 @@ ttb demo_logs
 ## Development
 
 ```bash
-cargo test        # 12 unit tests: parser, store, plotting
+cargo test        # 17 unit tests: parser, store, plotting, colors
 cargo clippy      # clean
 ```
 
 Layout: `src/tfevents.rs` (parser/writer) · `src/store.rs` (run discovery,
 incremental ingest) · `src/plot.rs` (braille canvas, bucketing, smoothing) ·
-`src/app.rs` (state, key handling) · `src/ui.rs` (rendering) ·
-`src/gen.rs` (demo logs) · `src/main.rs` (CLI, loader thread, event loop).
+`src/colors.rs` (categorical palette, line styles) · `src/app.rs` (state, key
+handling) · `src/ui.rs` (rendering) · `src/gen.rs` (demo logs) ·
+`src/main.rs` (CLI, loader thread, event loop).
 
 ### Python version
 
